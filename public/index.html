@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>مدرّب الستيب</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F3F6F8;--sheet:#FFFFFF;--ink:#1B2A4A;--muted:#5B6779;--line:#D5DDE5;
+  --green:#0F7B5F;--on-green:#FFFFFF;--mark:#F2D45C;--wrong:#B4342D;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#0E1520;--sheet:#162130;--ink:#E6ECF2;--muted:#93A1B3;--line:#2A3950;
+  --green:#3FBF95;--on-green:#08231A;--mark:#E8C547;--wrong:#E57A72;}}
+:root[data-theme="dark"]{--paper:#0E1520;--sheet:#162130;--ink:#E6ECF2;--muted:#93A1B3;--line:#2A3950;
+  --green:#3FBF95;--on-green:#08231A;--mark:#E8C547;--wrong:#E57A72;}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;
+  font-size:16px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:640px;margin:0 auto;padding:18px 18px 56px}
+.en{font-family:"Source Serif 4",Georgia,"Times New Roman",serif;direction:ltr;text-align:left}
+h1{font-size:26px;line-height:1.35;margin:18px 0 8px}
+h2{font-size:18px;margin:30px 0 12px;font-weight:600}
+p{margin:0 0 12px}
+.muted{color:var(--muted)}
+.center{text-align:center}
+.sheet{background:var(--sheet);border:1px solid var(--line);border-radius:6px;padding:20px}
+.btn{font:inherit;font-weight:600;border:0;border-radius:6px;padding:13px 22px;cursor:pointer;background:var(--green);color:var(--on-green);min-height:48px}
+.btn.wide{width:100%}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.link{font:inherit;background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;padding:8px 4px}
+:focus-visible{outline:3px solid var(--mark);outline-offset:2px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input[type=password]{font:inherit;width:100%;padding:12px;border:1.5px solid var(--line);border-radius:6px;background:var(--sheet);color:var(--ink);margin:8px 0 14px}
+
+/* home */
+.hello{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);font-size:14px}
+.score{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center;margin:14px 0 6px}
+.grade{position:relative;width:132px;height:104px;display:grid;place-items:center}
+.grade svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.grade .num{font-size:46px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.ring{stroke:var(--green);stroke-width:3;fill:none;stroke-linecap:round}
+.track{position:relative;height:6px;background:color-mix(in srgb,var(--line) 80%,transparent);border-radius:3px;margin:14px 0 22px;direction:ltr}
+.track i{position:absolute;top:0;bottom:0;left:0;background:var(--ink);border-radius:3px}
+.track .goal{position:absolute;top:-6px;width:2px;height:18px;background:var(--green)}
+.track .goal span{position:absolute;top:18px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--green);white-space:nowrap}
+.stats{display:flex;gap:0;border:1px solid var(--line);border-radius:6px;background:var(--sheet)}
+.stats div{flex:1;text-align:center;padding:12px 4px;border-left:1px solid var(--line)}
+.stats div:last-child{border-left:0}
+.stats b{display:block;font-size:22px;font-variant-numeric:tabular-nums;line-height:1.2}
+.stats span{font-size:12.5px;color:var(--muted)}
+.lvl{height:6px;background:color-mix(in srgb,var(--line) 80%,transparent);border-radius:3px;overflow:hidden;margin-top:8px}
+.lvl i{display:block;height:100%;background:var(--mark)}
+.today{margin-top:18px}
+.today .kicker{font-size:14px;color:var(--muted);margin-bottom:2px}
+.today h3{font-size:20px;margin:0 0 6px;line-height:1.4}
+.week{display:flex;gap:6px;direction:ltr;justify-content:space-between;margin-top:14px}
+.week span{flex:1;height:28px;border-radius:4px;background:color-mix(in srgb,var(--line) 60%,transparent)}
+.week span.on{background:var(--green)}
+.week span.mid{background:color-mix(in srgb,var(--green) 45%,transparent)}
+.bars{display:flex;flex-direction:column;gap:12px}
+.bar-l{display:flex;justify-content:space-between;font-size:15px;margin-bottom:4px}
+.bar{height:9px;background:color-mix(in srgb,var(--line) 70%,transparent);border-radius:5px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ink);border-radius:5px}
+.bar i.low{background:var(--wrong)}
+.tags{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.tags li{border:1.4px solid var(--wrong);color:var(--wrong);border-radius:20px;padding:2px 12px;font-size:14px}
+.badges{display:grid;grid-template-columns:repeat(5,1fr);gap:12px 6px}
+.badge{text-align:center;font-size:11.5px;line-height:1.35;color:var(--muted)}
+.badge i{display:block;width:34px;height:34px;margin:0 auto 5px;border-radius:50%;border:1.6px solid var(--muted);opacity:.5}
+.badge.ok{color:var(--ink)}
+.badge.ok i{background:var(--ink);border-color:var(--ink);opacity:1;box-shadow:inset 0 0 0 4px var(--sheet)}
+
+/* runner */
+.top{display:flex;justify-content:space-between;align-items:center;font-size:14px;color:var(--muted);margin-bottom:8px;gap:10px}
+.top strong{color:var(--ink);font-weight:600}
+.prog{height:4px;background:color-mix(in srgb,var(--line) 80%,transparent);border-radius:2px;margin-bottom:18px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--ink);transition:width .25s}
+.passage{background:var(--sheet);border:1px solid var(--line);border-radius:6px;padding:16px 18px;max-height:42vh;overflow:auto;font-size:17px;line-height:1.7;margin-bottom:14px;white-space:pre-line}
+.audio{display:flex;align-items:center;gap:12px;background:var(--sheet);border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:14px}
+.play{width:48px;height:48px;border-radius:50%;border:0;background:var(--ink);color:var(--sheet);cursor:pointer;display:grid;place-items:center;flex:none}
+.play:disabled{opacity:.3;cursor:not-allowed}
+.play svg{width:18px;height:18px}
+.qtext{font-size:19px;line-height:1.55;margin:0 0 16px}
+.seg{display:inline-block;border-bottom:1.5px solid var(--muted);margin:0 2px}
+.seg sub{font-family:"IBM Plex Sans Arabic",sans-serif;font-size:11px;color:var(--muted);margin-left:2px}
+.opts{display:flex;flex-direction:column;gap:4px}
+.opt{display:flex;align-items:center;gap:14px;width:100%;padding:10px;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;direction:ltr;min-height:52px}
+.opt .bub{flex:none;width:32px;height:32px;border-radius:50%;border:1.6px solid var(--ink);display:grid;place-items:center;font-family:"IBM Plex Sans Arabic",sans-serif;font-size:13px;font-weight:600;transition:background-color .15s,color .15s}
+.opt .txt{font-family:"Source Serif 4",Georgia,serif;font-size:17px;line-height:1.4}
+.opt:hover:not(:disabled){background:color-mix(in srgb,var(--line) 45%,transparent)}
+.opt:disabled{cursor:default}
+.opt[aria-checked="true"]{background:color-mix(in srgb,var(--mark) 24%,transparent)}
+.opt[aria-checked="true"] .bub{background:var(--ink);color:var(--sheet)}
+.opt.right .bub{background:var(--green);border-color:var(--green);color:var(--on-green)}
+.opt.right{background:color-mix(in srgb,var(--green) 12%,transparent)}
+.opt.miss .bub{background:var(--wrong);border-color:var(--wrong);color:#fff}
+.actions{display:flex;justify-content:space-between;align-items:center;margin-top:18px;gap:10px}
+.fb{margin-top:16px;padding:14px 16px;border-radius:6px;border-right:4px solid var(--green);background:color-mix(in srgb,var(--green) 8%,transparent)}
+.fb.bad{border-right-color:var(--wrong);background:color-mix(in srgb,var(--wrong) 8%,transparent)}
+.fb strong{display:block;margin-bottom:4px}
+.fb p{margin:0}
+.step{font-size:14px;color:var(--muted);margin-bottom:8px}
+.exp{font-size:17px;line-height:1.85;white-space:pre-line}
+.ex{list-style:none;padding:0;margin:14px 0 0;border-top:1px dashed var(--line)}
+.ex li{padding:8px 0;border-bottom:1px dashed var(--line);font-size:17px}
+details{margin-top:10px}
+summary{cursor:pointer;color:var(--muted)}
+
+/* loading & summary */
+.load{text-align:center;padding:80px 10px}
+.dots{display:flex;gap:10px;justify-content:center;margin-bottom:22px}
+.dots span{width:16px;height:16px;border-radius:50%;border:1.6px solid var(--ink);animation:fill 1.5s infinite}
+.dots span:nth-child(2){animation-delay:.25s}.dots span:nth-child(3){animation-delay:.5s}.dots span:nth-child(4){animation-delay:.75s}
+@keyframes fill{0%,100%{background:transparent}40%,60%{background:var(--ink)}}
+@media (prefers-reduced-motion:reduce){.dots span{animation:none;background:var(--ink)}}
+.big{font-size:56px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.xp{display:inline-block;font-weight:700;color:var(--green);font-size:22px}
+.rev{padding:12px 0;border-bottom:1px dashed var(--line);font-size:15px}
+.rev .en{font-size:16px;margin-bottom:4px}
+.no{color:var(--wrong);font-weight:600}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(30px);opacity:0;
+  background:var(--ink);color:var(--sheet);padding:10px 18px;border-radius:24px;font-weight:600;transition:all .3s;pointer-events:none}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<main class="wrap" id="app"></main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+const app = document.getElementById('app');
+const LET = ['A','B','C','D'];
+const SEC = {g:'القواعد', r:'القراءة', l:'الاستماع', c:'التحليل الكتابي'};
+const WEIGHT = {r:40, g:30, l:20, c:10};
+const KIND = {lesson:'درس', targeted:'درس مخصص', review:'مراجعة الأسبوع', mock:'اختبار تجريبي'};
+let KEY = ''; try { KEY = localStorage.getItem('step_key') || ''; } catch(e) {}
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const top = () => window.scrollTo(0, 0);
+
+function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2200); }
+
+async function api(path, opt = {}){
+  const r = await fetch(path, {...opt, headers:{'content-type':'application/json','x-app-key':KEY}});
+  if (r.status === 401){ gate('كلمة المرور غير صحيحة.'); throw new Error('auth'); }
+  const d = await r.json().catch(() => ({error:'الخادم رجّع رد غير مفهوم'}));
+  if (!r.ok) throw new Error(d.error || ('خطأ ' + r.status));
+  return d;
+}
+
+function loading(title, sub = ''){
+  app.innerHTML = `<div class="load"><div class="dots" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <p><strong>${title}</strong></p>${sub ? `<p class="muted">${sub}</p>` : ''}</div>`;
+  top();
+}
+function fail(e, retry){
+  if (e.message === 'auth') return;
+  app.innerHTML = `<div class="load"><p><strong>ما قدرنا نكمل.</strong></p><p class="muted">${esc(e.message)}</p>
+    <div class="row" style="justify-content:center;margin-top:16px"><button class="btn" id="retry">حاول مرة ثانية</button><button class="btn ghost" id="home">الرئيسية</button></div></div>`;
+  document.getElementById('retry').onclick = retry;
+  document.getElementById('home').onclick = home;
+}
+
+function gate(msg = ''){
+  app.innerHTML = `<h1>مدرّب الستيب</h1><p class="muted">اكتب كلمة المرور اللي حطيتها في Cloudflare باسم APP_KEY.</p>
+    <label for="k">كلمة المرور</label><input type="password" id="k" autocomplete="current-password">
+    ${msg ? `<p class="no">${msg}</p>` : ''}<button class="btn wide" id="in">دخول</button>`;
+  const go = () => { KEY = document.getElementById('k').value.trim(); try { localStorage.setItem('step_key', KEY); } catch(e) {} home(); };
+  document.getElementById('in').onclick = go;
+  document.getElementById('k').onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+
+/* ---------------- Home ---------------- */
+async function home(){
+  if (!KEY) return gate();
+  loading('لحظة...');
+  let s; try { s = await api('/api/state'); } catch(e) { return fail(e, home); }
+  const p = s.progress, it = p.item;
+  let action;
+  if (p.pendingTomorrow){
+    action = `<div class="kicker">أول شي اليوم</div><h3>اختبار درس أمس</h3>
+      <p class="muted">٨ أسئلة على درس أمس. هذا الاختبار هو اللي يثبّت المعلومة.</p>
+      <button class="btn wide" id="act">ابدأ اختبار أمس</button>`;
+  } else if (!it){
+    action = `<h3>خلّصت المنهج كامل</h3><p class="muted">باقي عليك المراجعة اليومية لين يوم الاختبار.</p>`;
+  } else if (p.locked){
+    action = `<div class="kicker">مهمة اليوم</div><h3>خلّصتها، الله يعطيك العافية</h3>
+      <p class="muted">الدرس الجاي يفتح بكرة: ${esc(it.title)}. ${s.due ? 'وقتك الباقي استغله في المراجعة.' : ''}</p>`;
+  } else {
+    action = `<div class="kicker">${KIND[it.kind]} · الأسبوع ${it.week} · اليوم ${p.next} من ${p.total}</div>
+      <h3>${esc(it.title)}</h3>
+      <button class="btn wide" id="act">ابدأ</button>`;
+  }
+  const est = s.estimate, gap = Math.max(0, 96 - est);
+  const weakest = Object.keys(WEIGHT).sort((a,b) => s.sections[a] - s.sections[b])[0];
+  const maxXp = Math.max(60, ...s.last14.map(d => d.xp));
+  app.innerHTML = `
+    <div class="hello"><span>أهلاً، يوم ${p.done ? 'جديد' : 'البداية'}</span><span>${s.today}</span></div>
+    <div class="score">
+      <div class="grade"><svg viewBox="0 0 132 104" aria-hidden="true"><path class="ring" d="M100 20 C 130 37, 127 80, 70 88 C 20 93, 3 63, 17 37 C 30 12, 80 5, 113 27"/></svg><span class="num">${est}</span></div>
+      <div><strong>درجتك المتوقعة</strong><p class="muted" style="margin:0">${gap ? `باقي ${gap} درجة على ٩٦. أكبر مكسب في ${SEC[weakest]}.` : 'وصلت منطقة الهدف. ثبّت المستوى.'}</p></div>
+    </div>
+    <div class="track" aria-hidden="true"><i style="width:${est}%"></i><div class="goal" style="left:96%"><span>٩٦</span></div></div>
+    <div class="stats">
+      <div><b>${s.streak}</b><span>أيام متتالية</span></div>
+      <div><b>${s.level}</b><span>المستوى</span></div>
+      <div><b>${s.xp}</b><span>نقطة</span></div>
+    </div>
+    <div class="lvl" aria-label="التقدم للمستوى التالي"><i style="width:${s.levelXp / 5}%"></i></div>
+    <p class="muted" style="font-size:13px;margin-top:4px">${500 - s.levelXp} نقطة للمستوى ${s.level + 1}</p>
+
+    <div class="sheet today">${action}</div>
+    ${s.due ? `<button class="btn ghost wide" id="rev" style="margin-top:10px">راجع غلطاتك السابقة (${s.due})</button>` : ''}
+
+    <h2>آخر أسبوعين</h2>
+    <div class="week">${s.last14.map(d => `<span class="${d.xp >= maxXp * .6 ? 'on' : d.xp ? 'mid' : ''}" title="${d.date}: ${d.xp}"></span>`).join('')}</div>
+
+    <h2>مستواك في كل قسم</h2>
+    <div class="bars">${['r','g','l','c'].map(k => `<div><div class="bar-l"><span>${SEC[k]} <span class="muted">(${WEIGHT[k]}٪)</span></span><span>${s.sections[k]}٪</span></div>
+      <div class="bar"><i class="${s.sections[k] < 70 ? 'low' : ''}" style="width:${s.sections[k]}%"></i></div></div>`).join('')}</div>
+
+    ${s.weak.length ? `<h2>نقاط تحتاج شغل</h2><ul class="tags">${s.weak.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+
+    <h2>الأوسمة</h2>
+    <div class="badges">${s.badges.map(b => `<div class="badge ${b.ok ? 'ok' : ''}" title="${esc(b.d)}"><i></i>${esc(b.n)}</div>`).join('')}</div>
+    <p class="center" style="margin-top:28px"><button class="link" id="out">تسجيل خروج</button></p>`;
+  const act = document.getElementById('act');
+  if (act) act.onclick = () => p.pendingTomorrow ? tomorrowTest(p.pendingTomorrow) : openDay(p.next);
+  const rv = document.getElementById('rev'); if (rv) rv.onclick = review;
+  document.getElementById('out').onclick = () => { try { localStorage.removeItem('step_key'); } catch(e) {} KEY = ''; gate(); };
+  top();
+}
+
+/* ---------------- Day flows ---------------- */
+async function openDay(n){
+  loading('Claude يجهّز لك اليوم...', 'أول مرة ياخذ دقيقة إلى دقيقتين. لا تقفل الصفحة.');
+  let d; try { d = await api('/api/day/' + n); } catch(e) { return fail(e, () => openDay(n)); }
+  const c = d.content;
+  if ((d.kind === 'lesson' || d.kind === 'targeted') && !d.lesson_done && c.steps.length){
+    intro(c.title_ar, c.intro_ar, `${c.steps.length} خطوات، كل خطوة بعدها سؤال سريع. بعدها تمرين ${c.quiz.length} سؤال.`, () => {
+      const seq = c.steps.flatMap(s => [{type:'x', s}, ...(s.check ? [{type:'q', q:s.check}] : [])]);
+      run({title:c.title_ar, seq, passages:c.passages, instant:true, onDone: async res => {
+        try { await api('/api/attempt', {method:'POST', body:JSON.stringify({day:n, part:'lesson', results:res})}); } catch(e) {}
+        intro('ممتاز، خلّصت الشرح', '', `الحين التمرين: ${c.quiz.length} سؤال مع تصحيح فوري.`, () => quiz(d));
+      }});
+    });
+  } else if (!d.quiz_done){
+    if (d.kind === 'mock' || d.kind === 'review') intro(c.title_ar, c.intro_ar, `${c.quiz.length} سؤال.${d.kind === 'mock' ? ' بدون تصحيح فوري، زي الاختبار الحقيقي.' : ''}`, () => quiz(d));
+    else quiz(d);
+  } else home();
+}
+
+function quiz(d){
+  const c = d.content, mock = d.kind === 'mock';
+  run({title:c.title_ar, seq:c.quiz.map(q => ({type:'q', q})), passages:c.passages, instant:!mock, onDone: async res => {
+    loading('نحفظ نتيجتك...');
+    let r; try { r = await api('/api/attempt', {method:'POST', body:JSON.stringify({day:d.day, part:mock ? 'mock' : 'quiz', results:res})}); }
+    catch(e) { return fail(e, () => quiz(d)); }
+    summary(res, r.gained, mock, 'خلّصت مهمة اليوم. بكرة أول شي اختبار على هذا الدرس.');
+  }});
+}
+
+async function tomorrowTest(n){
+  loading('نجهّز اختبار درس أمس...');
+  let d; try { d = await api('/api/day/' + n); } catch(e) { return fail(e, () => tomorrowTest(n)); }
+  const c = d.content;
+  intro('اختبار درس أمس', c.title_ar, `${c.tomorrow.length} أسئلة. التصحيح في النهاية عشان تختبر نفسك صدق.`, () => {
+    run({title:'اختبار أمس', seq:c.tomorrow.map(q => ({type:'q', q})), passages:c.passages, instant:false, onDone: async res => {
+      loading('نحفظ نتيجتك...');
+      let r; try { r = await api('/api/attempt', {method:'POST', body:JSON.stringify({day:n, part:'tomorrow', results:res})}); }
+      catch(e) { return fail(e, () => tomorrowTest(n)); }
+      summary(res, r.gained, true, 'الحين تقدر تبدأ درس اليوم.');
+    }});
+  });
+}
+
+async function review(){
+  loading('نجهّز بطاقات المراجعة...');
+  let d; try { d = await api('/api/review'); } catch(e) { return fail(e, review); }
+  if (!d.cards.length){ toast('ما عندك مراجعة اليوم'); return home(); }
+  run({title:'مراجعة الغلطات', seq:d.cards.map(c => ({type:'q', q:c.q, id:c.id})), passages:[], instant:true, onDone: async res => {
+    loading('نحفظ نتيجتك...');
+    let r; try { r = await api('/api/review', {method:'POST', body:JSON.stringify({results:res.map(x => ({id:x.id, correct:x.correct}))})}); }
+    catch(e) { return fail(e, review); }
+    summary(res, r.gained, false, 'اللي جاوبته صح يرجع لك بعد فترة أطول، واللي غلطت فيه يرجع بكرة.');
+  }});
+}
+
+function intro(title, sub, note, go){
+  app.innerHTML = `<h1>${esc(title)}</h1>${sub ? `<p>${esc(sub)}</p>` : ''}<p class="muted">${note}</p>
+    <div class="row" style="margin-top:20px"><button class="btn" id="go">يلا نبدأ</button><button class="btn ghost" id="back">الرئيسية</button></div>`;
+  document.getElementById('go').onclick = go;
+  document.getElementById('back').onclick = home;
+  top();
+}
+
+function summary(res, gained, showWrong, note){
+  const ok = res.filter(r => r.correct).length;
+  const wrong = res.filter(r => !r.correct);
+  app.innerHTML = `<div class="center" style="padding-top:30px">
+      <div class="big">${ok}<span class="muted" style="font-size:28px">/${res.length}</span></div>
+      <p>إجابة صحيحة</p><p class="xp" id="xp">+0 نقطة</p><p class="muted">${note}</p></div>
+    ${showWrong && wrong.length ? `<h2>راجع غلطاتك</h2>${wrong.map(w => `<div class="rev">
+      <div class="en">${w.q.segs ? w.q.segs.map((g, i) => `${esc(g)} <sub>${LET[i]}</sub>`).join(' ') : esc(w.q.q)}</div>
+      <div><span class="no">${w.chosen === -1 ? 'ما أعرف' : 'خطأ'}</span> &nbsp; الصح: <span class="en" style="display:inline">${esc(w.q.options[w.q.answer])}</span></div>
+      <div class="muted">${esc(w.q.why_ar)}</div></div>`).join('')}<p class="muted" style="margin-top:12px">كل هذي الغلطات انضافت لمراجعتك وبترجع لك بكرة.</p>` : ''}
+    <button class="btn wide" id="home" style="margin-top:22px">الرئيسية</button>`;
+  document.getElementById('home').onclick = home;
+  const el = document.getElementById('xp'); let v = 0; const step = Math.max(1, Math.ceil(gained / 30));
+  const tick = () => { v = Math.min(gained, v + step); el.textContent = `+${v} نقطة`; if (v < gained) requestAnimationFrame(tick); };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) el.textContent = `+${gained} نقطة`; else tick();
+  top();
+}
+
+/* ---------------- Runner ---------------- */
+function run({title, seq, passages, instant, onDone}){
+  const P = {}; (passages || []).forEach(p => P[p.id] = p.text);
+  seq.forEach(it => { if (it.type === 'q') it.order = it.q.segs ? [0,1,2,3] : shuffle([0,1,2,3]); });
+  const R = {i:0, sel:null, done:false, results:[], plays:{}};
+  const total = seq.length;
+
+  function record(){
+    const it = seq[R.i], q = it.q, ok = R.sel === q.answer;
+    // السؤال الغلط ينرسل كامل (مع نص القراءة) عشان ينحفظ في بطاقات المراجعة
+    const saved = ok ? null : {...q, ...(q.passage && P[q.passage] ? {passage_text:P[q.passage]} : {})};
+    R.results.push({sec:q.sec, tag:q.tag, correct:ok, chosen:R.sel, id:it.id, q:saved});
+  }
+  function next(){
+    R.i++; R.sel = null; R.done = false;
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    if (R.i >= total) return onDone(R.results);
+    render(); top();
+  }
+  function speak(text){
+    if (!window.speechSynthesis) return;
+    const used = R.plays[text] || 0; if (used >= 2) return;
+    R.plays[text] = used + 1;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'en-US'; u.rate = .92;
+    const vs = speechSynthesis.getVoices(); const v = vs.find(v => /en[-_]US/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang));
+    if (v) u.voice = v;
+    speechSynthesis.speak(u); render();
+  }
+
+  function render(){
+    const it = seq[R.i];
+    const head = `<div class="top"><span><strong>${esc(title)}</strong></span><span>${R.i + 1} / ${total} &nbsp;<button class="link" id="quit">خروج</button></span></div>
+      <div class="prog"><i style="width:${R.i / total * 100}%"></i></div>`;
+    if (it.type === 'x'){
+      const stepNo = seq.slice(0, R.i + 1).filter(x => x.type === 'x').length, steps = seq.filter(x => x.type === 'x').length;
+      app.innerHTML = head + `<div class="sheet"><p class="step">الخطوة ${stepNo} من ${steps}</p>
+        <div class="exp">${esc(it.s.explain_ar)}</div>
+        ${it.s.examples.length ? `<ul class="ex">${it.s.examples.map(e => `<li class="en">${esc(e)}</li>`).join('')}</ul>` : ''}</div>
+        <button class="btn wide" id="nx" style="margin-top:16px">${it.s.check ? 'فهمت، اختبرني' : 'التالي'}</button>`;
+      document.getElementById('nx').onclick = next;
+    } else {
+      const q = it.q;
+      let media = '';
+      const ptext = q.passage_text || (q.passage && P[q.passage]);
+      if (ptext) media += `<div class="passage en" tabindex="0" aria-label="نص القراءة">${esc(ptext)}</div>`;
+      if (q.audio){
+        const left = 2 - (R.plays[q.audio] || 0);
+        media += window.speechSynthesis ? `<div class="audio"><button class="play" id="play" ${left <= 0 ? 'disabled' : ''} aria-label="تشغيل المقطع">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg></button>
+            <div><strong>استمع للمقطع</strong><br><span class="muted">${left > 0 ? `باقي لك ${left === 2 ? 'مرتين' : 'مرة وحدة'}` : 'انتهت مرات التشغيل'}</span></div></div>`
+          : `<div class="passage en">${esc(q.audio)}</div>`;
+      }
+      const stem = q.segs
+        ? `<p class="qtext en">${q.segs.map((s, i) => `<span class="seg">${esc(s)}<sub>${LET[i]}</sub></span>`).join(' ')}</p><p class="muted en" style="margin-top:-6px">${esc(q.q)}</p>`
+        : `<p class="qtext en">${esc(q.q)}</p>`;
+      const shown = R.done && instant;
+      const opts = it.order.map((oi, pos) => {
+        let cls = '';
+        if (shown){ if (oi === q.answer) cls = 'right'; else if (oi === R.sel) cls = 'miss'; }
+        return `<button class="opt ${cls}" role="radio" aria-checked="${R.sel === oi}" data-i="${oi}" ${R.done ? 'disabled' : ''}>
+          <span class="bub">${LET[pos]}</span><span class="txt">${esc(q.options[oi])}</span></button>`;
+      }).join('');
+      const ok = R.sel === q.answer;
+      const fb = shown ? `<div class="fb ${ok ? '' : 'bad'}"><strong>${ok ? 'صح' : (R.sel === -1 ? 'ولا يهمك، هذا الصح:' : 'الإجابة الصحيحة: ') + (ok ? '' : `<span class="en" style="display:inline">${LET[it.order.indexOf(q.answer)]}) ${esc(q.options[q.answer])}</span>`)}</strong>
+          <p>${esc(q.why_ar)}</p>${q.audio ? `<details><summary>نص المقطع</summary><p class="en">${esc(q.audio)}</p></details>` : ''}</div>` : '';
+      const actions = R.done
+        ? `<span></span><button class="btn" id="nx">${R.i + 1 === total ? 'إنهاء' : 'التالي'}</button>`
+        : `<button class="link" id="dk">ما أعرف</button><button class="btn" id="ok" ${R.sel === null ? 'disabled' : ''}>${instant ? 'تأكيد' : (R.i + 1 === total ? 'إنهاء' : 'التالي')}</button>`;
+      app.innerHTML = head + media + `<div class="sheet">${stem}<div class="opts" role="radiogroup">${opts}</div>${fb}<div class="actions">${actions}</div></div>`;
+      app.querySelectorAll('.opt:not(:disabled)').forEach(b => b.onclick = () => { R.sel = +b.dataset.i; render(); });
+      const doConfirm = () => { record(); if (instant){ R.done = true; render(); } else next(); };
+      const okb = document.getElementById('ok'); if (okb) okb.onclick = doConfirm;
+      const dk = document.getElementById('dk'); if (dk) dk.onclick = () => { R.sel = -1; doConfirm(); };
+      const nx = document.getElementById('nx'); if (nx) nx.onclick = next;
+      const pl = document.getElementById('play'); if (pl) pl.onclick = () => speak(q.audio);
+    }
+    document.getElementById('quit').onclick = () => { if (confirm('تطلع؟ تقدمك في هذا الجزء بيضيع.')) { if (window.speechSynthesis) speechSynthesis.cancel(); home(); } };
+  }
+  render(); top();
+}
+
+if (window.speechSynthesis) speechSynthesis.getVoices();
+home();
+</script>
+</body>
+</html>
