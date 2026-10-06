@@ -132,7 +132,14 @@ summary{cursor:pointer;color:var(--muted)}
 </style>
 </head>
 <body>
-<main class="wrap" id="app"></main>
+<main class="wrap" id="app"><p class="muted" style="padding-top:40px">جاري التحميل...</p></main>
+<noscript><p style="padding:20px">التطبيق يحتاج تفعيل JavaScript في المتصفح.</p></noscript>
+<script>
+window.onerror = function(msg, src, line){
+  var a = document.getElementById('app');
+  if (a) a.innerHTML = '<div style="padding:30px 0"><p><strong>صار خطأ في الصفحة</strong></p><p style="direction:ltr;text-align:left;font-size:13px;word-break:break-all">' + String(msg) + ' (line ' + line + ')</p><p>صوّر هذي الشاشة وأرسلها.</p></div>';
+};
+</script>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 const app = document.getElementById('app');
