@@ -19,7 +19,9 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
-    if (!env.APP_KEY || req.headers.get('x-app-key') !== env.APP_KEY) return json({ error: 'unauthorized' }, 401);
+    const appKey = String(env.APP_KEY || '').trim();
+    if (!appKey) return json({ error: 'APP_KEY مو موجود في إعدادات Cloudflare. أضفه من Settings ← Variables and Secrets كـ Secret.' }, 500);
+    if (String(req.headers.get('x-app-key') || '').trim() !== appKey) return json({ error: 'unauthorized' }, 401);
     try {
       const p = url.pathname, m = req.method;
       if (p === '/api/state' && m === 'GET') return json(await state(env));

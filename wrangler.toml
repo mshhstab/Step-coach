@@ -1,6 +1,8 @@
 name = "step-coach"
 main = "src/worker.js"
 compatibility_date = "2026-09-01"
+# لا تمسح المتغيرات المضافة من لوحة Cloudflare عند كل نشر
+keep_vars = true
 
 [assets]
 directory = "./public"
