@@ -136,6 +136,8 @@ summary{cursor:pointer;color:var(--muted)}
 <noscript><p style="padding:20px">التطبيق يحتاج تفعيل JavaScript في المتصفح.</p></noscript>
 <script>
 window.onerror = function(msg, src, line){
+  // أخطاء سكربتات خارجية (إضافات المتصفح أو سكربتات Cloudflare) توصل بدون تفاصيل، نتجاهلها عشان ما تمسح التطبيق
+  if (!line || /^Script error\.?$/.test(String(msg))) return;
   var a = document.getElementById('app');
   if (a) a.innerHTML = '<div style="padding:30px 0"><p><strong>صار خطأ في الصفحة</strong></p><p style="direction:ltr;text-align:left;font-size:13px;word-break:break-all">' + String(msg) + ' (line ' + line + ')</p><p>صوّر هذي الشاشة وأرسلها.</p></div>';
 };
