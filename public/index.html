@@ -136,8 +136,6 @@ summary{cursor:pointer;color:var(--muted)}
 <noscript><p style="padding:20px">التطبيق يحتاج تفعيل JavaScript في المتصفح.</p></noscript>
 <script>
 window.onerror = function(msg, src, line){
-  // أخطاء سكربتات خارجية (إضافات المتصفح أو سكربتات Cloudflare) توصل بدون تفاصيل، نتجاهلها عشان ما تمسح التطبيق
-  if (!line || /^Script error\.?$/.test(String(msg))) return;
   var a = document.getElementById('app');
   if (a) a.innerHTML = '<div style="padding:30px 0"><p><strong>صار خطأ في الصفحة</strong></p><p style="direction:ltr;text-align:left;font-size:13px;word-break:break-all">' + String(msg) + ' (line ' + line + ')</p><p>صوّر هذي الشاشة وأرسلها.</p></div>';
 };
@@ -153,7 +151,7 @@ let KEY = ''; try { KEY = localStorage.getItem('step_key') || ''; } catch(e) {}
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const top = () => window.scrollTo(0, 0);
+const toTop = () => window.scrollTo(0, 0);
 
 function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2200); }
 
@@ -168,7 +166,7 @@ async function api(path, opt = {}){
 function loading(title, sub = ''){
   app.innerHTML = `<div class="load"><div class="dots" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <p><strong>${title}</strong></p>${sub ? `<p class="muted">${sub}</p>` : ''}</div>`;
-  top();
+  toTop();
 }
 function fail(e, retry){
   if (e.message === 'auth') return;
@@ -245,7 +243,7 @@ async function home(){
   if (act) act.onclick = () => p.pendingTomorrow ? tomorrowTest(p.pendingTomorrow) : openDay(p.next);
   const rv = document.getElementById('rev'); if (rv) rv.onclick = review;
   document.getElementById('out').onclick = () => { try { localStorage.removeItem('step_key'); } catch(e) {} KEY = ''; gate(); };
-  top();
+  toTop();
 }
 
 /* ---------------- Day flows ---------------- */
@@ -308,7 +306,7 @@ function intro(title, sub, note, go){
     <div class="row" style="margin-top:20px"><button class="btn" id="go">يلا نبدأ</button><button class="btn ghost" id="back">الرئيسية</button></div>`;
   document.getElementById('go').onclick = go;
   document.getElementById('back').onclick = home;
-  top();
+  toTop();
 }
 
 function summary(res, gained, showWrong, note){
@@ -326,7 +324,7 @@ function summary(res, gained, showWrong, note){
   const el = document.getElementById('xp'); let v = 0; const step = Math.max(1, Math.ceil(gained / 30));
   const tick = () => { v = Math.min(gained, v + step); el.textContent = `+${v} نقطة`; if (v < gained) requestAnimationFrame(tick); };
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) el.textContent = `+${gained} نقطة`; else tick();
-  top();
+  toTop();
 }
 
 /* ---------------- Runner ---------------- */
@@ -346,7 +344,7 @@ function run({title, seq, passages, instant, onDone}){
     R.i++; R.sel = null; R.done = false;
     if (window.speechSynthesis) speechSynthesis.cancel();
     if (R.i >= total) return onDone(R.results);
-    render(); top();
+    render(); toTop();
   }
   function speak(text){
     if (!window.speechSynthesis) return;
@@ -408,7 +406,7 @@ function run({title, seq, passages, instant, onDone}){
     }
     document.getElementById('quit').onclick = () => { if (confirm('تطلع؟ تقدمك في هذا الجزء بيضيع.')) { if (window.speechSynthesis) speechSynthesis.cancel(); home(); } };
   }
-  render(); top();
+  render(); toTop();
 }
 
 if (window.speechSynthesis) speechSynthesis.getVoices();
