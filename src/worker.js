@@ -28,6 +28,7 @@ export default {
       const dm = p.match(/^\/api\/day\/(\d+)$/);
       if (dm && m === 'GET') return await getDay(env, +dm[1]);
       if (p === '/api/attempt' && m === 'POST') return json(await attempt(env, await req.json()));
+      if (p === '/api/history' && m === 'GET') return json(await history(env));
       if (p === '/api/review' && m === 'GET') return json(await reviewGet(env));
       if (p === '/api/review' && m === 'POST') return json(await reviewPost(env, await req.json()));
       return json({ error: 'not found' }, 404);
@@ -285,6 +286,13 @@ async function generate(env, n) {
 
   await env.DB.prepare('INSERT OR IGNORE INTO days(day,kind,sec,title,content,has_tomorrow,created_at) VALUES(?,?,?,?,?,?,?)')
     .bind(n, item.kind, item.sec, data.title_ar || item.title, JSON.stringify(data), hasTom && data.tomorrow.length ? 1 : 0, now()).run();
+}
+
+/* ---------- history (للمراجعة فقط، بدون نقاط) ---------- */
+async function history(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT day,kind,sec,title,done_date,lesson_done,quiz_done FROM days WHERE lesson_done=1 OR quiz_done=1 ORDER BY day DESC').all();
+  return { days: results.map(r => ({ ...r, week: (CURRICULUM[r.day - 1] || {}).week || null })) };
 }
 
 /* ---------- attempts ---------- */

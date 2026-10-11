@@ -116,6 +116,12 @@ summary{cursor:pointer;color:var(--muted)}
 
 /* loading & summary */
 .load{text-align:center;padding:80px 10px}
+.hist{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.hist button{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;text-align:right;font:inherit;color:inherit;background:var(--sheet);border:1px solid var(--line);border-radius:6px;padding:14px 16px;cursor:pointer;min-height:56px}
+.hist button:hover{border-color:var(--ink)}
+.hist .t{font-weight:600;line-height:1.45}
+.hist .m{font-size:13px;color:var(--muted);white-space:nowrap}
+.note{font-size:14px;color:var(--muted);border-right:3px solid var(--mark);padding:6px 12px;margin:10px 0 18px}
 .dots{display:flex;gap:10px;justify-content:center;margin-bottom:22px}
 .dots span{width:16px;height:16px;border-radius:50%;border:1.6px solid var(--ink);animation:fill 1.5s infinite}
 .dots span:nth-child(2){animation-delay:.25s}.dots span:nth-child(3){animation-delay:.5s}.dots span:nth-child(4){animation-delay:.75s}
@@ -226,6 +232,7 @@ async function home(){
 
     <div class="sheet today">${action}</div>
     ${s.due ? `<button class="btn ghost wide" id="rev" style="margin-top:10px">راجع غلطاتك السابقة (${s.due})</button>` : ''}
+    ${p.done ? `<button class="btn ghost wide" id="hist" style="margin-top:10px">دروسي السابقة</button>` : ''}
 
     <h2>آخر أسبوعين</h2>
     <div class="week">${s.last14.map(d => `<span class="${d.xp >= maxXp * .6 ? 'on' : d.xp ? 'mid' : ''}" title="${d.date}: ${d.xp}"></span>`).join('')}</div>
@@ -242,6 +249,7 @@ async function home(){
   const act = document.getElementById('act');
   if (act) act.onclick = () => p.pendingTomorrow ? tomorrowTest(p.pendingTomorrow) : openDay(p.next);
   const rv = document.getElementById('rev'); if (rv) rv.onclick = review;
+  const hs = document.getElementById('hist'); if (hs) hs.onclick = archive;
   document.getElementById('out').onclick = () => { try { localStorage.removeItem('step_key'); } catch(e) {} KEY = ''; gate(); };
   toTop();
 }
@@ -309,21 +317,59 @@ function intro(title, sub, note, go){
   toTop();
 }
 
-function summary(res, gained, showWrong, note){
+function summary(res, gained, showWrong, note, practice = false){
   const ok = res.filter(r => r.correct).length;
   const wrong = res.filter(r => !r.correct);
   app.innerHTML = `<div class="center" style="padding-top:30px">
       <div class="big">${ok}<span class="muted" style="font-size:28px">/${res.length}</span></div>
-      <p>إجابة صحيحة</p><p class="xp" id="xp">+0 نقطة</p><p class="muted">${note}</p></div>
+      <p>إجابة صحيحة</p><p class="xp" id="xp" ${practice ? 'hidden' : ''}>+0 نقطة</p><p class="muted">${note}</p></div>
     ${showWrong && wrong.length ? `<h2>راجع غلطاتك</h2>${wrong.map(w => `<div class="rev">
       <div class="en">${w.q.segs ? w.q.segs.map((g, i) => `${esc(g)} <sub>${LET[i]}</sub>`).join(' ') : esc(w.q.q)}</div>
       <div><span class="no">${w.chosen === -1 ? 'ما أعرف' : 'خطأ'}</span> &nbsp; الصح: <span class="en" style="display:inline">${esc(w.q.options[w.q.answer])}</span></div>
-      <div class="muted">${esc(w.q.why_ar)}</div></div>`).join('')}<p class="muted" style="margin-top:12px">كل هذي الغلطات انضافت لمراجعتك وبترجع لك بكرة.</p>` : ''}
-    <button class="btn wide" id="home" style="margin-top:22px">الرئيسية</button>`;
+      <div class="muted">${esc(w.q.why_ar)}</div></div>`).join('')}${practice ? '' : '<p class="muted" style="margin-top:12px">كل هذي الغلطات انضافت لمراجعتك وبترجع لك بكرة.</p>'}` : ''}
+    <div class="row" style="margin-top:22px">${practice ? '<button class="btn" id="arch">دروسي السابقة</button>' : ''}<button class="btn ${practice ? 'ghost' : 'wide'}" id="home">الرئيسية</button></div>`;
   document.getElementById('home').onclick = home;
+  const ar = document.getElementById('arch'); if (ar) ar.onclick = archive;
   const el = document.getElementById('xp'); let v = 0; const step = Math.max(1, Math.ceil(gained / 30));
   const tick = () => { v = Math.min(gained, v + step); el.textContent = `+${v} نقطة`; if (v < gained) requestAnimationFrame(tick); };
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) el.textContent = `+${gained} نقطة`; else tick();
+  toTop();
+}
+
+/* ---------------- Archive (قراءة وتمرين بدون نقاط) ---------------- */
+async function archive(){
+  loading('نجيب دروسك...');
+  let d; try { d = await api('/api/history'); } catch(e) { return fail(e, archive); }
+  app.innerHTML = `<div class="top"><span><strong>دروسي السابقة</strong></span><button class="link" id="back">الرئيسية</button></div>
+    <p class="note">هنا تراجع براحتك. القراءة والتمرين هنا ما يعطونك نقاط ولا يغيّرون درجتك المتوقعة.</p>
+    ${d.days.length ? `<ul class="hist">${d.days.map(x => `<li><button data-d="${x.day}">
+      <span class="t">${esc(x.title)}</span>
+      <span class="m">${KIND[x.kind] || ''} · اليوم ${x.day}</span></button></li>`).join('')}</ul>`
+    : '<p class="muted">ما خلّصت أي درس للحين.</p>'}`;
+  document.getElementById('back').onclick = home;
+  app.querySelectorAll('.hist button').forEach(b => b.onclick = () => pastDay(+b.dataset.d));
+  toTop();
+}
+
+async function pastDay(n){
+  loading('نفتح الدرس...');
+  let d; try { d = await api('/api/day/' + n); } catch(e) { return fail(e, () => pastDay(n)); }
+  const c = d.content, steps = c.steps || [];
+  app.innerHTML = `<div class="top"><span>${KIND[d.kind] || ''} · اليوم ${n}</span><button class="link" id="back">رجوع للقائمة</button></div>
+    <h1>${esc(c.title_ar || d.title)}</h1>
+    ${c.intro_ar ? `<p>${esc(c.intro_ar)}</p>` : ''}
+    ${steps.map((s, i) => `<div class="sheet" style="margin-bottom:12px"><p class="step">الخطوة ${i + 1} من ${steps.length}</p>
+      <div class="exp">${esc(s.explain_ar)}</div>
+      ${s.examples.length ? `<ul class="ex">${s.examples.map(e => `<li class="en">${esc(e)}</li>`).join('')}</ul>` : ''}</div>`).join('')}
+    ${!steps.length ? '<p class="muted">هذا اليوم كان أسئلة بدون شرح، تقدر تعيد حلها للتمرين.</p>' : ''}
+    <div class="row" style="margin-top:18px">
+      ${c.quiz.length ? `<button class="btn" id="prac">تمرّن على أسئلته (${c.quiz.length})</button>` : ''}
+      <button class="btn ghost" id="back2">رجوع للقائمة</button></div>`;
+  document.getElementById('back').onclick = archive;
+  document.getElementById('back2').onclick = archive;
+  const pr = document.getElementById('prac');
+  if (pr) pr.onclick = () => run({title:'تمرين: ' + (c.title_ar || d.title), seq:c.quiz.map(q => ({type:'q', q})), passages:c.passages, instant:true,
+    onDone: res => summary(res, 0, true, 'هذا تمرين مراجعة، ما ينحسب في النقاط ولا الدرجة.', true)});
   toTop();
 }
 
