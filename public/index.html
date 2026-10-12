@@ -205,9 +205,13 @@ async function home(){
       <button class="btn wide" id="act">ابدأ اختبار أمس</button>`;
   } else if (!it){
     action = `<h3>خلّصت المنهج كامل</h3><p class="muted">باقي عليك المراجعة اليومية لين يوم الاختبار.</p>`;
+  } else if (p.weekend){
+    action = `<div class="kicker">نهاية الأسبوع</div><h3>اليوم راحة</h3>
+      <p class="muted">الدراسة من الأحد للخميس. الدرس الجاي يفتح يوم الأحد: ${esc(it.title)}. ${s.due ? 'لو حاب، تقدر تراجع غلطاتك.' : ''}</p>`;
   } else if (p.locked){
+    const thu = new Date(s.today + 'T00:00:00Z').getUTCDay() === 4;
     action = `<div class="kicker">مهمة اليوم</div><h3>خلّصتها، الله يعطيك العافية</h3>
-      <p class="muted">الدرس الجاي يفتح بكرة: ${esc(it.title)}. ${s.due ? 'وقتك الباقي استغله في المراجعة.' : ''}</p>`;
+      <p class="muted">الدرس الجاي يفتح ${thu ? 'يوم الأحد' : 'بكرة'}: ${esc(it.title)}. ${s.due ? 'وقتك الباقي استغله في المراجعة.' : ''}</p>`;
   } else {
     action = `<div class="kicker">${KIND[it.kind]} · الأسبوع ${it.week} · اليوم ${p.next} من ${p.total}</div>
       <h3>${esc(it.title)}</h3>
@@ -369,6 +373,7 @@ async function transcript(date){
 async function openDay(n){
   loading('Claude يجهّز لك اليوم...', 'أول مرة ياخذ دقيقة إلى دقيقتين. لا تقفل الصفحة.');
   let d; try { d = await api('/api/day/' + n); } catch(e) { return fail(e, () => openDay(n)); }
+  if (d.tries && !d.quiz_done) return retake(n);
   const c = d.content;
   if ((d.kind === 'lesson' || d.kind === 'targeted') && !d.lesson_done && c.steps.length){
     intro(c.title_ar, c.intro_ar, `${c.steps.length} خطوات، كل خطوة بعدها سؤال سريع. بعدها تمرين ${c.quiz.length} سؤال.`, () => {
@@ -390,8 +395,41 @@ function quiz(d){
     loading('نحفظ نتيجتك...');
     let r; try { r = await api('/api/attempt', {method:'POST', body:JSON.stringify({day:d.day, part:mock ? 'mock' : 'quiz', results:res})}); }
     catch(e) { return fail(e, () => quiz(d)); }
-    summary(res, r.gained, mock, 'خلّصت مهمة اليوم. بكرة أول شي اختبار على هذا الدرس.');
+    if (r.passed === false) return failed(res, r, d.day);
+    const thu = new Date(Date.now() + 3 * 3600e3).getUTCDay() === 4;
+    summary(res, r.gained, mock, d.content.tomorrow && d.content.tomorrow.length
+      ? `خلّصت مهمة اليوم. ${thu ? 'يوم الأحد' : 'بكرة'} أول شي اختبار على هذا الدرس.`
+      : `خلّصت مهمة اليوم.${thu ? ' نشوفك الأحد، استمتع بالإجازة.' : ''}`);
   }});
+}
+
+// رسب في تمرين الدرس: يشوف غلطاته، وبعدها يراجع الشرح ويعيد بأسئلة جديدة
+function failed(res, r, n){
+  const wrong = res.filter(x => !x.correct);
+  app.innerHTML = `<div class="center" style="padding-top:30px">
+      <div class="big">${r.ok}<span class="muted" style="font-size:28px">/${r.total}</span></div>
+      <p>تحتاج ${r.need} على الأقل عشان تعدّي</p>
+      <p class="muted">ما عليه، هذا اللي يخليك تتقن صدق. راجع غلطاتك تحت، وبعدها نرجع للشرح وتعيد الاختبار بأسئلة جديدة كلها.</p></div>
+    ${wrong.length ? `<h2>غلطاتك</h2>${wrong.map(w => `<div class="rev">
+      <div class="en">${w.q.segs ? w.q.segs.map((g, i) => `${esc(g)} <sub>${LET[i]}</sub>`).join(' ') : esc(w.q.q)}</div>
+      <div><span class="no">${w.chosen === -1 ? 'ما أعرف' : 'خطأ'}</span> &nbsp; الصح: <span class="en" style="display:inline">${esc(w.q.options[w.q.answer])}</span></div>
+      <div class="muted">${esc(w.q.why_ar)}</div></div>`).join('')}` : ''}
+    <div class="row" style="margin-top:22px"><button class="btn" id="again">راجع الشرح وأعد الاختبار</button><button class="btn ghost" id="home">بعدين</button></div>`;
+  document.getElementById('again').onclick = () => retake(n);
+  document.getElementById('home').onclick = home;
+  toTop();
+}
+
+async function retake(n){
+  loading('Claude يجهّز لك أسئلة جديدة...', 'ياخذ دقيقة تقريباً. لا تقفل الصفحة.');
+  let d; try { d = await api('/api/retry/' + n, {method:'POST', body:'{}'}); } catch(e) { return fail(e, () => retake(n)); }
+  const c = d.content;
+  const go = () => quiz(d);
+  if (!c.steps || !c.steps.length) return intro(c.title_ar, '', `محاولة ${d.tries + 1}: ${c.quiz.length} سؤال جديد. تحتاج ٨٠٪ عشان تعدّي.`, go);
+  intro(c.title_ar, 'قبل الإعادة، اقرأ الشرح مرة ثانية بتركيز.', `بعدها ${c.quiz.length} سؤال جديد كلها، وتحتاج ٨٠٪ عشان تعدّي.`, () => {
+    run({title:c.title_ar, seq:c.steps.map(s => ({type:'x', s})), passages:c.passages, instant:true, onDone: () =>
+      intro('الحين الاختبار', '', `${c.quiz.length} سؤال جديد. خذ وقتك في كل سؤال.`, go)});
+  });
 }
 
 async function tomorrowTest(n){

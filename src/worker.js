@@ -15,6 +15,10 @@ const json = (d, s = 200) => new Response(JSON.stringify(d), {
 const today = () => new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10); // توقيت السعودية
 const addDays = (d, n) => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 const now = () => new Date().toISOString();
+const dow = d => new Date(d + 'T00:00:00Z').getUTCDay();          // 0 الأحد ... 5 الجمعة 6 السبت
+const isWeekend = d => dow(d) === 5 || dow(d) === 6;               // الدراسة من الأحد للخميس
+const prevStudy = d => { do d = addDays(d, -1); while (isWeekend(d)); return d; };
+const PASS = 0.8;                                                   // لازم ٨٠٪ في تمرين الدرس عشان يعدّيك
 
 export default {
   async scheduled(event, env, ctx) {
@@ -42,6 +46,8 @@ export default {
       const dm = p.match(/^\/api\/day\/(\d+)$/);
       if (dm && m === 'GET') return await getDay(env, +dm[1]);
       if (p === '/api/attempt' && m === 'POST') return json(await attempt(env, await req.json()));
+      const rm = p.match(/^\/api\/retry\/(\d+)$/);
+      if (rm && m === 'POST') return await retry(env, +rm[1]);
       if (p === '/api/history' && m === 'GET') return json(await history(env));
       if (p === '/api/review' && m === 'GET') return json(await reviewGet(env));
       if (p === '/api/review' && m === 'POST') return json(await reviewPost(env, await req.json()));
@@ -78,11 +84,11 @@ async function addXP(env, n) {
 async function progress(env) {
   const last = await env.DB.prepare(
     'SELECT day,has_tomorrow,tomorrow_done,done_date FROM days WHERE quiz_done=1 ORDER BY day DESC LIMIT 1').first();
-  const t = today();
-  if (!last) return { next: 1, locked: false, pendingTomorrow: null, done: 0 };
-  const pendingTomorrow = last.has_tomorrow && !last.tomorrow_done && last.done_date < t ? last.day : null;
-  const locked = last.done_date >= t; // يوم واحد فقط في اليوم
-  return { next: last.day + 1, locked, pendingTomorrow, done: last.day };
+  const t = today(), weekend = isWeekend(t);
+  if (!last) return { next: 1, locked: weekend, weekend, pendingTomorrow: null, done: 0 };
+  const pendingTomorrow = !weekend && last.has_tomorrow && !last.tomorrow_done && last.done_date < t ? last.day : null;
+  const locked = weekend || last.done_date >= t; // يوم واحد فقط في اليوم، والجمعة والسبت راحة
+  return { next: last.day + 1, locked, weekend, pendingTomorrow, done: last.day };
 }
 
 async function weakTags(env, placement) {
@@ -95,12 +101,14 @@ async function weakTags(env, placement) {
 }
 
 /* ---------- state ---------- */
+// السلسلة تحسب أيام الدراسة فقط (الأحد للخميس)، فالجمعة والسبت ما يقطعونها
 function streaks(dates, t) {
-  const set = new Set(dates);
-  let cur = 0, d = set.has(t) ? t : (set.has(addDays(t, -1)) ? addDays(t, -1) : null);
-  while (d && set.has(d)) { cur++; d = addDays(d, -1); }
+  const set = new Set(dates.filter(d => !isWeekend(d)));
+  let d = t; while (isWeekend(d)) d = addDays(d, -1);
+  if (d === t && !set.has(d)) d = prevStudy(d);
+  let cur = 0; while (set.has(d)) { cur++; d = prevStudy(d); }
   const asc = [...set].sort(); let best = 0, run = 0, prev = null;
-  for (const x of asc) { run = prev && addDays(prev, 1) === x ? run + 1 : 1; best = Math.max(best, run); prev = x; }
+  for (const x of asc) { run = prev && prevStudy(x) === prev ? run + 1 : 1; best = Math.max(best, run); prev = x; }
   return { cur, best };
 }
 
@@ -129,12 +137,12 @@ async function state(env) {
 
   const badges = [
     { n: 'أول خطوة', d: 'أنهيت أول يوم', ok: pr.done >= 1 },
-    { n: 'أسبوع كامل', d: '٧ أيام متتالية', ok: st.best >= 7 },
-    { n: 'شهر حديد', d: '٣٠ يوم متتالي', ok: st.best >= 30 },
-    { n: 'أساس القواعد', d: 'أنهيت المرحلة الأولى', ok: pr.done >= 56 },
-    { n: 'صياد الأخطاء', d: 'أنهيت التحليل الكتابي', ok: pr.done >= 70 },
-    { n: 'قارئ محترف', d: 'أنهيت مرحلة القراءة', ok: pr.done >= 98 },
-    { n: 'أذن ذهبية', d: 'أنهيت أسبوع الاستماع', ok: pr.done >= 105 },
+    { n: 'أسبوع كامل', d: '٥ أيام دراسة متتالية', ok: st.best >= 5 },
+    { n: 'شهر حديد', d: '٤ أسابيع دراسة بدون انقطاع', ok: st.best >= 20 },
+    { n: 'أساس القواعد', d: 'أنهيت المرحلة الأولى', ok: pr.done >= 40 },
+    { n: 'صياد الأخطاء', d: 'أنهيت التحليل الكتابي', ok: pr.done >= 50 },
+    { n: 'قارئ محترف', d: 'أنهيت مرحلة القراءة', ok: pr.done >= 65 },
+    { n: 'أذن ذهبية', d: 'أنهيت أسبوع الاستماع', ok: pr.done >= 70 },
     { n: 'أول تجريبي', d: 'أنهيت أول اختبار تجريبي', ok: mocks >= 1 },
     { n: '٥٠ معلومة ثابتة', d: '٥٠ غلطة صارت معلومة ثابتة', ok: mastered >= 50 },
     { n: 'المستوى ١٠', d: 'جمعت ٤٥٠٠ نقطة', ok: xp >= 4500 },
@@ -160,12 +168,13 @@ async function getDay(env, n) {
     await generate(env, n);
     row = await env.DB.prepare('SELECT * FROM days WHERE day=?').bind(n).first();
   }
-  return json({ ...row, content: JSON.parse(row.content) });
+  const tries = await getMeta(env, 'tries_' + n, 0);
+  return json({ ...row, content: JSON.parse(row.content), tries });
 }
 
 const SYS = `You are an expert tutor for the STEP exam (Standardized Test of English Proficiency, by Qiyas / ETEC, Saudi Arabia).
 STEP sections: Reading comprehension (40%), Structure / grammar (30%), Listening comprehension (20%), Compositional analysis: error identification and choosing the correct sentence (10%). Every item is 4-option multiple choice.
-Your learner is an adult Saudi Arabic speaker at intermediate level, studying one hour a day, aiming for 96+.
+Your learner is an adult Saudi Arabic speaker at intermediate level, studying about an hour a day Sunday to Thursday, aiming for 96+. He finds basic explanations easy, so keep explanations tight and make practice demanding: test real understanding, not recognition.
 Rules:
 - Every field ending in _ar is written in clear, simple Arabic: Modern Standard but close to everyday Saudi speech. Short, concrete, friendly. Use English only for examples and grammar terms.
 - Questions mirror real STEP style and difficulty. Exactly 4 options, exactly one correct answer, plausible distractors that target typical Arab-learner mistakes.
@@ -207,7 +216,7 @@ Return JSON:
  "intro_ar": 1-2 sentences: why this matters in STEP,
  "steps": [6 items, small to big, each {"explain_ar": 2-5 short sentences (use \\n for line breaks; you may show a formula like: If + had + V3), "examples": [2-3 English sentences], "check": QUESTION testing exactly this step}],
  "passages": [PASSAGE] (reading lessons only, otherwise []),
- "quiz": [12 QUESTION: 9 on today's topic with rising difficulty, then 3 that interleave recently studied topics],
+ "quiz": [12 QUESTION: 9 on today's topic with rising difficulty (at least 5 of them at real STEP difficulty), then 3 that interleave recently studied topics],
  "tomorrow": [8 new QUESTION on today's topic at real STEP difficulty, for a delayed test tomorrow]
 }
 ${QSPEC}`;
@@ -308,6 +317,40 @@ async function generate(env, n) {
     .bind(n, item.kind, item.sec, data.title_ar || item.title, JSON.stringify(data), hasTom && data.tomorrow.length ? 1 : 0, now()).run();
 }
 
+/* ---------- retry: أسئلة جديدة بعد ما يرسب في تمرين الدرس ---------- */
+async function retry(env, n) {
+  const row = await env.DB.prepare('SELECT * FROM days WHERE day=?').bind(n).first();
+  if (!row) return json({ error: 'اليوم غير موجود' }, 404);
+  const content = JSON.parse(row.content);
+  const tries = await getMeta(env, 'tries_' + n, 0);
+  if (!row.quiz_done && tries > 0 && (content.round || 0) < tries) {
+    const item = CURRICULUM[n - 1] || { week: 0, kind: row.kind, sec: row.sec, title: row.title, focus: '' };
+    const sec = item.kind === 'targeted' ? 'g' : item.sec;
+    const wrong = await getMeta(env, 'wrong_' + n, []);
+    const ids = ['r' + tries + 'a', 'r' + tries + 'b'];
+    const topic = item.kind === 'targeted' ? content.title_ar : `${item.title} | ${item.focus}`;
+    const used = content.quiz.map(q => q.q).slice(0, 30).join(' || ');
+    const prompt = `The learner did not pass the practice quiz for this lesson (needs ${Math.round(PASS * 100)}%) and must retake it with completely new questions.
+TOPIC: ${topic}
+Lesson taught (Arabic): ${content.title_ar}. ${content.steps.map(s => s.explain_ar).join(' / ').slice(0, 2500)}
+Topics he got wrong: ${wrong.join(', ') || 'mixed'}.
+Do NOT reuse any of these sentences: ${used}
+${secRules(sec)}${sec === 'r' ? ` For this retake use two NEW passages with ids "${ids[0]}" and "${ids[1]}" (6 questions each); ignore the tomorrow part.` : ''}
+Return JSON: {"passages": [PASSAGE] or [], "quiz": [12 QUESTION: 9 on today's topic at real STEP difficulty, with extra weight on the topics he got wrong, then 3 that interleave recently studied topics]}
+${QSPEC}`;
+    let d;
+    try { d = await claude(env, prompt); } catch (e) { if (e instanceof SyntaxError) d = await claude(env, prompt); else throw e; }
+    const quiz = (Array.isArray(d.quiz) ? d.quiz : []).map(cq).filter(Boolean);
+    if (quiz.length < 8) throw new Error('الأسئلة الجديدة طلعت ناقصة، جرّب مرة ثانية');
+    const np = Array.isArray(d.passages) ? d.passages.filter(p => p && p.id && p.text).map(p => ({ id: String(p.id), text: String(p.text) })) : [];
+    content.passages = [...content.passages.filter(p => !np.some(x => x.id === p.id)), ...np];
+    content.quiz = quiz;
+    content.round = tries;
+    await env.DB.prepare('UPDATE days SET content=? WHERE day=?').bind(JSON.stringify(content), n).run();
+  }
+  return json({ ...row, content, tries });
+}
+
 /* ---------- history (للمراجعة فقط، بدون نقاط) ---------- */
 async function history(env) {
   const { results } = await env.DB.prepare(
@@ -325,6 +368,11 @@ async function attempt(env, b) {
   if (already) return { gained: 0, already: true };
 
   const t = today(), ts = now(), st = [];
+  // تمرين الدرس لازم ينجح بـ ٨٠٪ عشان يعدّيك. المراجعة الأسبوعية والتجريبي ما عليها حد
+  const dk = await env.DB.prepare('SELECT kind FROM days WHERE day=?').bind(day).first();
+  const gated = part === 'quiz' && dk && (dk.kind === 'lesson' || dk.kind === 'targeted');
+  const ok = results.filter(r => r.correct).length, need = Math.ceil(results.length * PASS);
+  const passed = !gated || ok >= need;
   let gained = 0;
   for (const r of results) {
     st.push(env.DB.prepare('INSERT INTO answers(day,part,sec,tag,correct,created_at) VALUES(?,?,?,?,?,?)')
@@ -334,12 +382,20 @@ async function attempt(env, b) {
       .bind(JSON.stringify(r.q), r.sec || 'g', r.tag || '', addDays(t, 1), ts));
   }
   if (part === 'lesson') st.push(env.DB.prepare('UPDATE days SET lesson_done=1 WHERE day=?').bind(day));
+  if (!passed) {
+    // ما نجح: نحفظ الغلطات للمراجعة، بدون نقاط، واليوم يظل مفتوح لين يعيد الاختبار بأسئلة جديدة
+    if (st.length) await env.DB.batch(st);
+    const tries = (await getMeta(env, 'tries_' + day, 0)) + 1;
+    await setMeta(env, 'tries_' + day, tries);
+    await setMeta(env, 'wrong_' + day, results.filter(r => !r.correct).map(r => r.tag || '').filter(Boolean));
+    return { gained: 0, passed: false, ok, need, total: results.length, tries };
+  }
   if (part === 'quiz' || part === 'mock') st.push(env.DB.prepare('UPDATE days SET lesson_done=1, quiz_done=1, done_date=? WHERE day=?').bind(t, day));
   if (part === 'tomorrow') st.push(env.DB.prepare('UPDATE days SET tomorrow_done=1 WHERE day=?').bind(day));
   gained += BONUS[part] || 0;
   if (st.length) await env.DB.batch(st);
   await addXP(env, gained);
-  return { gained };
+  return { gained, passed: true, ok, need, total: results.length };
 }
 
 async function reviewGet(env) {

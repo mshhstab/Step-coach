@@ -4,7 +4,7 @@
 
 ## الملفات
 - `src/worker.js` الـ API: يكلم Claude ويحفظ في D1
-- `src/curriculum.js` منهج ٢٢ أسبوع (١٥٤ يوم)
+- `src/curriculum.js` منهج ١٨ أسبوع (٩٠ يوم دراسة، من الأحد للخميس)
 - `src/podcast.js` حلقة المشي اليومية (بودكاست خاص)
 - `tools/podcast/render.py` و `.github/workflows/podcast.yml` تسجيل صوت الحلقة في GitHub Actions
 - `public/index.html` واجهة التطبيق
