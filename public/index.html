@@ -274,9 +274,9 @@ async function walk(){
       <button class="link" id="tr" data-d="${ep.date}">نص الحلقة وكلمات اليوم</button>`;
   } else if (ep && (ep.status === 'audio' || ep.status === 'script')){
     const pc = ep.pieces_total ? Math.round(ep.pieces_done / ep.pieces_total * 100) : 0;
-    main = `<div class="kicker muted">حلقة اليوم</div><h3 id="wst">${ep.status === 'script' ? 'Claude يكتب نص الحلقة...' : `نسجّل الصوت: ${pc}٪`}</h3>
+    main = `<div class="kicker muted">حلقة اليوم</div><h3 id="wst">${ep.status === 'script' ? 'Claude يكتب نص الحلقة...' : (pc ? `نسجّل الصوت: ${pc}٪` : 'النص جاهز، ننتظر تسجيل الصوت')}</h3>
       <div class="bar" style="margin:8px 0 12px"><i id="wbar" style="width:${ep.status === 'script' ? 5 : pc}%"></i></div>
-      <p class="muted">خلّ الصفحة مفتوحة وتنبني أسرع. المجموع تقريباً ١٠ إلى ١٥ دقيقة، وإذا قفلتها تكمل لحالها وقت التشغيل المجدول.</p>
+      <p class="muted">${ep.status === 'script' ? 'كتابة النص تاخذ ١ إلى ٣ دقايق وهذي الصفحة مفتوحة.' : 'الصوت يتسجّل تلقائياً في GitHub خلال ساعة بالكثير، وتقدر تقفل الصفحة.'}</p>
       <p class="muted" style="font-size:13px" id="werr">${ep.error ? 'آخر ملاحظة: ' + esc(ep.error) : ''}</p>
       <button class="btn ghost" id="rf">تحديث</button>`;
   } else {
@@ -333,10 +333,10 @@ async function pump(run){
     if (run !== WALK_RUN || !document.getElementById('wst')) return;
     if (e.status === 'ready' || e.status === 'failed'){ if (e.status === 'ready') toast('حلقة اليوم جاهزة'); return walk(); }
     const pc = e.pieces_total ? Math.round(e.pieces_done / e.pieces_total * 100) : 0;
-    document.getElementById('wst').textContent = e.status === 'script' ? 'Claude يكتب نص الحلقة...' : `نسجّل الصوت: ${pc}٪`;
+    document.getElementById('wst').textContent = e.status === 'script' ? 'Claude يكتب نص الحلقة...' : (pc ? `نسجّل الصوت: ${pc}٪` : 'النص جاهز، ننتظر تسجيل الصوت');
     document.getElementById('wbar').style.width = (e.status === 'script' ? 5 : Math.max(5, pc)) + '%';
     document.getElementById('werr').textContent = e.error ? 'آخر ملاحظة: ' + e.error : '';
-    await new Promise(r => setTimeout(r, 2500));
+    await new Promise(r => setTimeout(r, e.status === 'script' ? 2500 : 20000));
   }
 }
 

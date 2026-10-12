@@ -1,5 +1,5 @@
 import { CURRICULUM } from './curriculum.js';
-import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle, podWork, ttsProbe } from './podcast.js';
+import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle, podWork, ttsProbe, ghApi } from './podcast.js';
 
 const TOTAL = CURRICULUM.length;
 const INTERVALS = [1, 3, 7, 14, 30, 60];           // التكرار المتباعد بالأيام
@@ -31,6 +31,8 @@ export default {
         return pm[2] === 'feed.xml' ? await feed(req, env, pm[1]) : await serveAudio(req, env, pm[2].slice(0, 10));
       } catch (e) { return new Response(String((e && e.message) || e), { status: 500 }); }
     }
+    const gm = url.pathname.match(/^\/podcast-api\/(job|upload|done|fail|progress)$/);
+    if (gm) { try { return await ghApi(req, env, gm[1]); } catch (e) { return new Response(JSON.stringify({ error: String((e && e.message) || e) }), { status: 500 }); } }
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     const appKey = String(env.APP_KEY || '').trim();
     if (!appKey) return json({ error: 'APP_KEY مو موجود في إعدادات Cloudflare. أضفه من Settings ← Variables and Secrets كـ Secret.' }, 500);

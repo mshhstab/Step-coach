@@ -1,0 +1,51 @@
+# حلقة المشي: يسجّل صوت حلقة اليوم ويرفعها للتطبيق
+# ما فيه أي كلمة سر هنا: GitHub يثبت هوية هذا الملف للتطبيق بتوقيع (OIDC)
+name: podcast
+
+on:
+  schedule:
+    - cron: "40 0 * * *"   # 3:40 الفجر بتوقيت السعودية: حلقة اليوم
+    - cron: "10 * * * *"   # كل ساعة: يلتقط أي حلقة طلبتها من التطبيق
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/podcast.yml", "tools/podcast/**"]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: podcast
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Ask the app for work
+        id: job
+        env:
+          APP_URL: https://step-coach.mshhstab.workers.dev
+        run: python tools/podcast/render.py check
+      - name: Cache voices
+        if: steps.job.outputs.work == 'yes'
+        uses: actions/cache@v4
+        with:
+          path: ~/.piper-voices
+          key: piper-voices-v1
+      - name: Install Piper and ffmpeg
+        if: steps.job.outputs.work == 'yes'
+        run: |
+          pip install -q piper-tts
+          command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Record and upload
+        if: steps.job.outputs.work == 'yes'
+        env:
+          APP_URL: https://step-coach.mshhstab.workers.dev
+        run: python tools/podcast/render.py render

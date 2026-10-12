@@ -29,6 +29,6 @@ CREATE TABLE IF NOT EXISTS episodes (
   date TEXT PRIMARY KEY, status TEXT, attempts INTEGER DEFAULT 0, tts_errors INTEGER DEFAULT 0, lease INTEGER,
   title TEXT, script TEXT, words TEXT, plan TEXT, frame TEXT,
   pieces_done INTEGER DEFAULT 0, pieces_total INTEGER DEFAULT 0, bytes INTEGER, seconds REAL,
-  error TEXT, created_at TEXT, done_at TEXT
+  error TEXT, created_at TEXT, done_at TEXT, parts TEXT
 );
 CREATE TABLE IF NOT EXISTS ep_pieces (date TEXT, idx INTEGER, bytes INTEGER, frames INTEGER, PRIMARY KEY(date, idx));

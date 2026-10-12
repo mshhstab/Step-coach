@@ -46,7 +46,7 @@ async function setMeta(env, k, v) {
 /* ---------- التشغيل المجدول ---------- */
 // opts.ms: أقصى وقت للتشغيل (المجدول ٧٠ ثانية، طلب من التطبيق ٢٥ ثانية)
 export async function tick(env, opts = {}) {
-  if (!env.AI || !env.POD) return;
+  if (!env.POD) return;
   const t = today(), started = Date.now(), limit = { ms: opts.ms || RUN_MS, max: opts.max || RUN_MAX };
   if (await getMeta(env, 'pod_enabled', true)) {
     const ep = await env.DB.prepare('SELECT date FROM episodes WHERE date=?').bind(t).first();
@@ -59,7 +59,8 @@ export async function tick(env, opts = {}) {
     .bind(Date.now() - SCRIPT_LEASE).first();
   if (s) { try { await writeScript(env, s.date); } catch (e) { console.log('script failed', e && e.message); } return; }
   const a = await env.DB.prepare("SELECT date FROM episodes WHERE status='audio' ORDER BY date DESC LIMIT 1").first();
-  if (a) { await renderAudio(env, a.date, started, limit); return; }
+  // الصوت يتسجّل في GitHub Actions (انظر .github/workflows/podcast.yml)
+  if (a) return;
   // تنظيف: صوت الحلقات القديمة ينحذف (النص يبقى)
   const old = await env.DB.prepare("SELECT date FROM episodes WHERE status='ready' AND date<? LIMIT 1").bind(addDays(t, -(KEEP_DAYS - 1))).first();
   if (old) {
@@ -234,11 +235,14 @@ function splitText(t) {
 
 export function buildPlan(s, review, day) {
   const pieces = [], index = new Map(), tl = [];
-  const say = text => {
+  const voices = [];
+  // v=0 صوت المدرّس، v=1 صوت ثاني لمقاطع الاستماع والمحاضرة والقصة
+  const say = (text, v = 0) => {
     const t = speakable(text); if (!t) return;
     for (const c of splitText(t)) {
-      if (!index.has(c)) { index.set(c, pieces.length); pieces.push(c); }
-      tl.push(['p', index.get(c)]);
+      const key = v + '|' + c;
+      if (!index.has(key)) { index.set(key, pieces.length); pieces.push(c); voices.push(v); }
+      tl.push(['p', index.get(key)]);
     }
   };
   const gap = sec => { if (tl.length && tl[tl.length - 1][0] === 's') tl[tl.length - 1][1] += sec; else tl.push(['s', sec]); };
@@ -283,30 +287,30 @@ export function buildPlan(s, review, day) {
 
   say('Part four. Listening practice. You will hear each clip, then two questions. After the answers, you will hear the clip again.'); gap(1.5);
   s.clips.forEach((c, i) => {
-    say(`Clip ${i + 1}.`); gap(1); say(c.script); gap(1.5);
+    say(`Clip ${i + 1}.`); gap(1); say(c.script, 1); gap(1.5);
     c.questions.forEach((q, j) => { say(`Question ${j + 1}. ${q.q}`); gap(0.6); say(opts(q)); gap(6); });
     c.questions.forEach((q, j) => { say(`Question ${j + 1}: the answer is ${LET[q.answer]}, ${q.options[q.answer]}.`); gap(0.6); });
-    say('Listen again.'); gap(1); say(c.script); gap(2);
+    say('Listen again.'); gap(1); say(c.script, 1); gap(2);
   });
 
   if (s.talk.text) {
     say(`Part five. A short talk: ${s.talk.title}. Listen for the main idea and for today's words.`); gap(1.5);
-    say(s.talk.text); gap(2);
+    say(s.talk.text, 1); gap(2);
     say('One more time. This time, try to catch every detail.'); gap(1.5);
-    say(s.talk.text); gap(2);
+    say(s.talk.text, 1); gap(2);
     const sent = (s.talk.text.match(/[^.!?]+[.!?]+/g) || []).map(x => x.trim()).filter(x => wordsOf(x) >= 5 && wordsOf(x) <= 22).slice(0, 10);
     if (sent.length) {
       say('Now shadowing. Repeat each sentence right after me, with the same rhythm.'); gap(1);
-      for (const x of sent) { say(x); shadow(x); }
+      for (const x of sent) { say(x, 1); shadow(x); }
       gap(1.5);
     }
   }
 
   if (s.story.text) {
     say(`Part six. A story: ${s.story.title}. Just enjoy it and follow the events.`); gap(1.5);
-    say(s.story.text); gap(2);
+    say(s.story.text, 1); gap(2);
     say('Listen once more.'); gap(1);
-    say(s.story.text); gap(2);
+    say(s.story.text, 1); gap(2);
   }
 
   say('Final review. Here are all of today\'s words one more time. Say the meaning before I do.'); gap(1);
@@ -315,7 +319,7 @@ export function buildPlan(s, review, day) {
 
   say(s.closing || 'That is all for today. Great work.'); gap(1);
   say('See you tomorrow.');
-  return { pieces, tl };
+  return { pieces, voices, tl };
 }
 
 export async function writeScript(env, date) {
@@ -382,7 +386,12 @@ export async function renderAudio(env, date, started = Date.now(), limit = { ms:
 
 async function layout(env, date) {
   const ep = await env.DB.prepare('SELECT * FROM episodes WHERE date=?').bind(date).first();
-  if (!ep || !ep.plan || !ep.frame) return null;
+  if (!ep) return null;
+  if (ep.parts) {   // ملف كامل مرفوع من GitHub Actions على أجزاء
+    const parts = JSON.parse(ep.parts), segs = parts.map((size, i) => ({ key: `ep/${date}/whole-${i}`, size }));
+    return { ep, segs, bytes: parts.reduce((a, b) => a + b, 0), seconds: ep.seconds, sil: null };
+  }
+  if (!ep.plan || !ep.frame) return null;
   const plan = JSON.parse(ep.plan), frame = JSON.parse(ep.frame);
   const { results } = await env.DB.prepare('SELECT idx,bytes,frames FROM ep_pieces WHERE date=?').bind(date).all();
   const P = Object.fromEntries(results.map(r => [r.idx, r]));
@@ -423,8 +432,8 @@ export async function serveAudio(req, env, date) {
   if (req.method === 'HEAD') return new Response(null, { status, headers });
 
   const { readable, writable } = typeof FixedLengthStream === 'function' ? new FixedLengthStream(len) : new TransformStream();
-  const silBuf = new Uint8Array(L.sil.len * 50);
-  for (let i = 0; i < 50; i++) silBuf.set(L.sil.frame, i * L.sil.len);
+  const silBuf = L.sil ? new Uint8Array(L.sil.len * 50) : null;
+  if (L.sil) for (let i = 0; i < 50; i++) silBuf.set(L.sil.frame, i * L.sil.len);
   (async () => {
     const w = writable.getWriter();
     try {
@@ -487,7 +496,7 @@ export async function podState(req, env) {
   const { results } = await env.DB.prepare(
     'SELECT date,status,title,pieces_done,pieces_total,seconds,error FROM episodes ORDER BY date DESC LIMIT 30').all();
   return {
-    ready: !!(env.AI && env.POD), enabled: await getMeta(env, 'pod_enabled', true), today: today(), startHour: START_HOUR,
+    ready: !!env.POD, enabled: await getMeta(env, 'pod_enabled', true), today: today(), startHour: START_HOUR,
     feed: `${origin}/podcast/${token}/feed.xml`, audioBase: `${origin}/podcast/${token}/`,
     episodes: results,
   };
@@ -500,7 +509,7 @@ export async function podEpisode(env, date) {
 }
 
 export async function podBuild(env) {
-  if (!env.AI || !env.POD) throw new Error('ربط Workers AI أو مخزن الصوت ناقص في الإعدادات');
+  if (!env.POD) throw new Error('ربط مخزن الصوت ناقص في الإعدادات');
   const t = today();
   const e = await env.DB.prepare('SELECT status FROM episodes WHERE date=?').bind(t).first();
   if (e && (e.status === 'ready' || e.status === 'audio')) return { queued: false, status: e.status };
@@ -534,3 +543,80 @@ export async function ttsProbe(env, text) {
 }
 
 export async function podToggle(env, on) { await setMeta(env, 'pod_enabled', !!on); return { enabled: !!on }; }
+
+/* ---------- تسجيل الصوت من GitHub Actions ----------
+   ما فيه كلمة سر مشتركة: GitHub يوقّع توكن (OIDC) يثبت أن الطلب جاي من ملف العمل في مستودعك بالذات،
+   والـ Worker يتحقق من التوقيع بمفاتيح GitHub العامة. */
+const GH_ISS = 'https://token.actions.githubusercontent.com';
+const GH_AUD = 'step-coach';
+let JWKS = null, JWKS_AT = 0;
+const b64u = t => { t = t.replace(/-/g, '+').replace(/_/g, '/'); const bin = atob(t + '='.repeat((4 - t.length % 4) % 4)); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+
+export async function verifyGitHub(req, env) {
+  const m = /^Bearer\s+(.+)$/.exec(req.headers.get('authorization') || '');
+  if (!m) return null;
+  const [h, p, sig] = m[1].split('.');
+  if (!h || !p || !sig) return null;
+  const head = JSON.parse(new TextDecoder().decode(b64u(h))), claims = JSON.parse(new TextDecoder().decode(b64u(p)));
+  if (head.alg !== 'RS256' || claims.iss !== GH_ISS || claims.aud !== GH_AUD) return null;
+  if (!(claims.exp * 1000 > Date.now())) return null;
+  const repo = String(env.GH_REPO || 'mshhstab/Step-coach').toLowerCase();
+  if (String(claims.repository || '').toLowerCase() !== repo) return null;
+  if (!String(claims.workflow_ref || '').toLowerCase().startsWith(repo + '/.github/workflows/podcast.yml@refs/heads/')) return null;
+  if (!JWKS || Date.now() - JWKS_AT > 3600e3 || !JWKS.find(k => k.kid === head.kid)) {
+    JWKS = (await (await fetch(GH_ISS + '/.well-known/jwks')).json()).keys; JWKS_AT = Date.now();
+  }
+  const jwk = JWKS.find(k => k.kid === head.kid);
+  if (!jwk) return null;
+  const key = await crypto.subtle.importKey('jwk', { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: 'RS256', ext: true }, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64u(sig), new TextEncoder().encode(h + '.' + p));
+  return ok ? claims : null;
+}
+
+const PART_MAX = 20 * 1024 * 1024;
+const jres = (d, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { 'content-type': 'application/json; charset=utf-8' } });
+
+export async function ghApi(req, env, path) {
+  if (!(await verifyGitHub(req, env))) return jres({ error: 'unauthorized' }, 401);
+  const url = new URL(req.url);
+  if (path === 'job' && req.method === 'POST') {
+    // نكتب نص اليوم لو ناقص، ونرجّع أحدث حلقة تنتظر صوت
+    await tick(env);
+    const s = await env.DB.prepare("SELECT date FROM episodes WHERE status='script' AND attempts<3 ORDER BY date DESC LIMIT 1").first();
+    if (s) { try { await writeScript(env, s.date); } catch (e) { return jres({ idle: true, error: String(e.message || e) }); } }
+    const e = await env.DB.prepare("SELECT date,plan FROM episodes WHERE status='audio' AND tts_errors<3 ORDER BY date DESC LIMIT 1").first();
+    if (!e) return jres({ idle: true });
+    const plan = JSON.parse(e.plan);
+    return jres({ date: e.date, pieces: plan.pieces, voices: plan.voices || plan.pieces.map(() => 0), tl: plan.tl });
+  }
+  const date = url.searchParams.get('date') || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return jres({ error: 'bad date' }, 400);
+  if (path === 'upload' && req.method === 'PUT') {
+    const part = +url.searchParams.get('part');
+    if (!(part >= 0 && part < 20)) return jres({ error: 'bad part' }, 400);
+    const buf = await req.arrayBuffer();
+    if (!buf.byteLength || buf.byteLength > PART_MAX) return jres({ error: 'bad size' }, 400);
+    await putAudio(env, `ep/${date}/whole-${part}`, buf);
+    return jres({ ok: true, bytes: buf.byteLength });
+  }
+  if (path === 'done' && req.method === 'POST') {
+    const b = await req.json();
+    const parts = (Array.isArray(b.parts) ? b.parts : []).map(Number);
+    if (!parts.length || parts.some(x => !(x > 0 && x <= PART_MAX))) return jres({ error: 'bad parts' }, 400);
+    await env.DB.prepare("UPDATE episodes SET status='ready', parts=?, bytes=?, seconds=?, pieces_done=pieces_total, error=NULL, done_at=?, lease=NULL WHERE date=?")
+      .bind(JSON.stringify(parts), parts.reduce((a, c) => a + c, 0), Number(b.seconds) || 0, now(), date).run();
+    return jres({ ok: true });
+  }
+  if (path === 'fail' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    await env.DB.prepare("UPDATE episodes SET tts_errors=tts_errors+1, error=?, status=CASE WHEN tts_errors+1>=3 THEN 'failed' ELSE status END WHERE date=?")
+      .bind('تسجيل الصوت: ' + String(b.error || 'خطأ').slice(0, 250), date).run();
+    return jres({ ok: true });
+  }
+  if (path === 'progress' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    await env.DB.prepare('UPDATE episodes SET pieces_done=? WHERE date=?').bind(Math.max(0, +b.done || 0), date).run();
+    return jres({ ok: true });
+  }
+  return jres({ error: 'not found' }, 404);
+}
