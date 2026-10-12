@@ -6,6 +6,7 @@ const TTS_MODEL = '@cf/myshell-ai/melotts';
 const START_HOUR = 3;          // تبدأ الحلقة تنبني من الساعة ٣ الفجر بتوقيت السعودية
 const RUN_MS = 70000;          // أقصى وقت لكل تشغيل مجدول
 const RUN_MAX = 25;            // أقصى عدد مقاطع صوتية لكل تشغيل
+const SCRIPT_LEASE = 240e3;    // مهلة قبل إعادة محاولة كتابة النص
 const MAX_PIECE = 480;         // أقصى طول نص لكل مقطع
 
 const KEEP_DAYS = 25;         // مدة الاحتفاظ بصوت الحلقات
@@ -43,21 +44,22 @@ async function setMeta(env, k, v) {
 }
 
 /* ---------- التشغيل المجدول ---------- */
-export async function tick(env) {
+// opts.ms: أقصى وقت للتشغيل (المجدول ٧٠ ثانية، طلب من التطبيق ٢٥ ثانية)
+export async function tick(env, opts = {}) {
   if (!env.AI || !env.POD) return;
-  const t = today(), started = Date.now();
+  const t = today(), started = Date.now(), limit = { ms: opts.ms || RUN_MS, max: opts.max || RUN_MAX };
   if (await getMeta(env, 'pod_enabled', true)) {
     const ep = await env.DB.prepare('SELECT date FROM episodes WHERE date=?').bind(t).first();
     if (!ep && riyadhHour() >= START_HOUR) await env.DB.prepare(
       "INSERT OR IGNORE INTO episodes(date,status,attempts,created_at) VALUES(?,'script',0,?)").bind(t, now()).run();
   }
-  // نص ناقص؟ نكتبه (مع إعادة محاولة كل ١٠ دقايق، ٣ مرات بالكثير)
+  // نص ناقص؟ نكتبه (مع إعادة محاولة بعد ٤ دقايق، ٣ مرات بالكثير)
   const s = await env.DB.prepare(
     "SELECT date FROM episodes WHERE status='script' AND attempts<3 AND (lease IS NULL OR lease<?) ORDER BY date DESC LIMIT 1")
-    .bind(Date.now() - 600e3).first();
+    .bind(Date.now() - SCRIPT_LEASE).first();
   if (s) { try { await writeScript(env, s.date); } catch (e) { console.log('script failed', e && e.message); } return; }
   const a = await env.DB.prepare("SELECT date FROM episodes WHERE status='audio' ORDER BY date DESC LIMIT 1").first();
-  if (a) { await renderAudio(env, a.date, started); return; }
+  if (a) { await renderAudio(env, a.date, started, limit); return; }
   // تنظيف: صوت الحلقات القديمة ينحذف (النص يبقى)
   const old = await env.DB.prepare("SELECT date FROM episodes WHERE status='ready' AND date<? LIMIT 1").bind(addDays(t, -(KEEP_DAYS - 1))).first();
   if (old) {
@@ -303,7 +305,7 @@ export function buildPlan(s, review, day) {
 }
 
 export async function writeScript(env, date) {
-  if (!(await takeLease(env, date, 600e3))) return { busy: true };
+  if (!(await takeLease(env, date, SCRIPT_LEASE))) return { busy: true };
   try {
     const inp = await scriptInputs(env, date);
     const [a, b] = await Promise.all([part(env, promptA(inp)), part(env, promptB(inp))]);
@@ -336,14 +338,14 @@ async function tts(env, text) {
   return u;
 }
 
-export async function renderAudio(env, date, started = Date.now()) {
-  if (!(await takeLease(env, date, 120e3))) return;
+export async function renderAudio(env, date, started = Date.now(), limit = { ms: RUN_MS, max: RUN_MAX }) {
+  if (!(await takeLease(env, date, Math.max(45e3, limit.ms + 15e3)))) return;
   let ep = await env.DB.prepare('SELECT plan,frame,pieces_total FROM episodes WHERE date=?').bind(date).first();
   const plan = JSON.parse(ep.plan);
   const { results } = await env.DB.prepare('SELECT idx FROM ep_pieces WHERE date=?').bind(date).all();
   const have = new Set(results.map(r => r.idx));
   let frame = ep.frame ? JSON.parse(ep.frame) : null, n = 0;
-  for (let i = 0; i < plan.pieces.length && n < RUN_MAX && Date.now() - started < RUN_MS; i++) {
+  for (let i = 0; i < plan.pieces.length && n < limit.max && Date.now() - started < limit.ms; i++) {
     if (have.has(i)) continue;
     n++;
     try {
@@ -493,6 +495,13 @@ export async function podBuild(env) {
     "INSERT INTO episodes(date,status,attempts,created_at) VALUES(?,'script',0,?) ON CONFLICT(date) DO UPDATE SET status='script', attempts=0, tts_errors=0, lease=NULL, error=NULL")
     .bind(t, now()).run();
   return { queued: true, status: 'script' };
+}
+
+// التطبيق وهو مفتوح يدفع الشغل بنفسه (احتياط لو الجدولة متأخرة)
+export async function podWork(env) {
+  await tick(env, { ms: 22000, max: 10 });
+  const e = await env.DB.prepare('SELECT status,pieces_done,pieces_total,error FROM episodes WHERE date=?').bind(today()).first();
+  return e || { status: null };
 }
 
 export async function podToggle(env, on) { await setMeta(env, 'pod_enabled', !!on); return { enabled: !!on }; }

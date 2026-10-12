@@ -1,5 +1,5 @@
 import { CURRICULUM } from './curriculum.js';
-import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle } from './podcast.js';
+import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle, podWork } from './podcast.js';
 
 const TOTAL = CURRICULUM.length;
 const INTERVALS = [1, 3, 7, 14, 30, 60];           // التكرار المتباعد بالأيام
@@ -45,6 +45,7 @@ export default {
       if (p === '/api/review' && m === 'POST') return json(await reviewPost(env, await req.json()));
       if (p === '/api/podcast' && m === 'GET') return json(await podState(req, env));
       if (p === '/api/podcast/build' && m === 'POST') return json(await podBuild(env));
+      if (p === '/api/podcast/work' && m === 'POST') return json(await podWork(env));
       if (p === '/api/podcast/toggle' && m === 'POST') return json(await podToggle(env, (await req.json()).enabled));
       const em = p.match(/^\/api\/podcast\/ep\/(\d{4}-\d{2}-\d{2})$/);
       if (em && m === 'GET') { const e = await podEpisode(env, em[1]); return e ? json(e) : json({ error: 'الحلقة غير موجودة' }, 404); }

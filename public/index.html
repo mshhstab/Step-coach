@@ -193,6 +193,7 @@ function gate(msg = ''){
 
 /* ---------------- Home ---------------- */
 async function home(){
+  WALK_RUN++;
   if (!KEY) return gate();
   loading('لحظة...');
   let s; try { s = await api('/api/state'); } catch(e) { return fail(e, home); }
@@ -273,10 +274,10 @@ async function walk(){
       <button class="link" id="tr" data-d="${ep.date}">نص الحلقة وكلمات اليوم</button>`;
   } else if (ep && (ep.status === 'audio' || ep.status === 'script')){
     const pc = ep.pieces_total ? Math.round(ep.pieces_done / ep.pieces_total * 100) : 0;
-    main = `<div class="kicker muted">حلقة اليوم</div><h3>${ep.status === 'script' ? 'Claude يكتب نص الحلقة...' : `نسجّل الصوت: ${pc}٪`}</h3>
-      <div class="bar" style="margin:8px 0 12px"><i style="width:${ep.status === 'script' ? 5 : pc}%"></i></div>
-      <p class="muted">${ep.status === 'script' ? 'كتابة النص تاخذ ١ إلى ٣ دقايق، بعدها' : ''} تنبني تلقائياً على دفعات كل دقيقة، والمجموع تقريباً ١٠ إلى ١٥ دقيقة. تقدر تقفل الصفحة وترجع.</p>
-      ${ep.error ? `<p class="muted" style="font-size:13px">آخر ملاحظة: ${esc(ep.error)}</p>` : ''}
+    main = `<div class="kicker muted">حلقة اليوم</div><h3 id="wst">${ep.status === 'script' ? 'Claude يكتب نص الحلقة...' : `نسجّل الصوت: ${pc}٪`}</h3>
+      <div class="bar" style="margin:8px 0 12px"><i id="wbar" style="width:${ep.status === 'script' ? 5 : pc}%"></i></div>
+      <p class="muted">خلّ الصفحة مفتوحة وتنبني أسرع. المجموع تقريباً ١٠ إلى ١٥ دقيقة، وإذا قفلتها تكمل لحالها وقت التشغيل المجدول.</p>
+      <p class="muted" style="font-size:13px" id="werr">${ep.error ? 'آخر ملاحظة: ' + esc(ep.error) : ''}</p>
       <button class="btn ghost" id="rf">تحديث</button>`;
   } else {
     main = `<div class="kicker muted">حلقة اليوم</div>
@@ -311,6 +312,7 @@ async function walk(){
   document.getElementById('cp').onclick = async () => { try { await navigator.clipboard.writeText(s.feed); toast('انسخ الرابط'); } catch(e) { toast('انسخه يدوياً من فوق'); } };
   document.getElementById('tg').onclick = async () => { try { await api('/api/podcast/toggle', {method:'POST', body:JSON.stringify({enabled:!s.enabled})}); } catch(e) {} walk(); };
   const rf = document.getElementById('rf'); if (rf) rf.onclick = walk;
+  if (ep && (ep.status === 'script' || ep.status === 'audio')) pump(++WALK_RUN);
   const tr = document.getElementById('tr'); if (tr) tr.onclick = () => transcript(tr.dataset.d);
   app.querySelectorAll('[data-tr]').forEach(b => b.onclick = () => transcript(b.dataset.tr));
   const bd = document.getElementById('bd');
@@ -320,6 +322,22 @@ async function walk(){
     walk();
   };
   toTop();
+}
+
+// وهي مفتوحة، الصفحة تدفع البناء بنفسها كل كم ثانية (ما تحتاج تنتظر الجدولة)
+let WALK_RUN = 0;
+async function pump(run){
+  while (run === WALK_RUN && document.getElementById('wst')){
+    if (document.hidden){ await new Promise(r => setTimeout(r, 3000)); continue; }
+    let e; try { e = await api('/api/podcast/work', {method:'POST', body:'{}'}); } catch(err) { await new Promise(r => setTimeout(r, 8000)); continue; }
+    if (run !== WALK_RUN || !document.getElementById('wst')) return;
+    if (e.status === 'ready' || e.status === 'failed'){ if (e.status === 'ready') toast('حلقة اليوم جاهزة'); return walk(); }
+    const pc = e.pieces_total ? Math.round(e.pieces_done / e.pieces_total * 100) : 0;
+    document.getElementById('wst').textContent = e.status === 'script' ? 'Claude يكتب نص الحلقة...' : `نسجّل الصوت: ${pc}٪`;
+    document.getElementById('wbar').style.width = (e.status === 'script' ? 5 : Math.max(5, pc)) + '%';
+    document.getElementById('werr').textContent = e.error ? 'آخر ملاحظة: ' + e.error : '';
+    await new Promise(r => setTimeout(r, 2500));
+  }
 }
 
 async function transcript(date){
