@@ -1,4 +1,5 @@
 import { CURRICULUM } from './curriculum.js';
+import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle } from './podcast.js';
 
 const TOTAL = CURRICULUM.length;
 const INTERVALS = [1, 3, 7, 14, 30, 60];           // التكرار المتباعد بالأيام
@@ -16,8 +17,19 @@ const addDays = (d, n) => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t
 const now = () => new Date().toISOString();
 
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(tick(env));
+  },
   async fetch(req, env) {
     const url = new URL(req.url);
+    // روابط البودكاست: بدون كلمة مرور، لكن الرابط فيه رمز سري مشتق من APP_KEY
+    const pm = url.pathname.match(/^\/podcast\/([0-9a-f]{24})\/(feed\.xml|\d{4}-\d{2}-\d{2}\.mp3)$/);
+    if (pm) {
+      if (!env.APP_KEY || pm[1] !== await feedToken(env)) return new Response('not found', { status: 404 });
+      try {
+        return pm[2] === 'feed.xml' ? await feed(req, env, pm[1]) : await serveAudio(req, env, pm[2].slice(0, 10));
+      } catch (e) { return new Response(String((e && e.message) || e), { status: 500 }); }
+    }
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     const appKey = String(env.APP_KEY || '').trim();
     if (!appKey) return json({ error: 'APP_KEY مو موجود في إعدادات Cloudflare. أضفه من Settings ← Variables and Secrets كـ Secret.' }, 500);
@@ -31,6 +43,11 @@ export default {
       if (p === '/api/history' && m === 'GET') return json(await history(env));
       if (p === '/api/review' && m === 'GET') return json(await reviewGet(env));
       if (p === '/api/review' && m === 'POST') return json(await reviewPost(env, await req.json()));
+      if (p === '/api/podcast' && m === 'GET') return json(await podState(req, env));
+      if (p === '/api/podcast/build' && m === 'POST') return json(await podBuild(env));
+      if (p === '/api/podcast/toggle' && m === 'POST') return json(await podToggle(env, (await req.json()).enabled));
+      const em = p.match(/^\/api\/podcast\/ep\/(\d{4}-\d{2}-\d{2})$/);
+      if (em && m === 'GET') { const e = await podEpisode(env, em[1]); return e ? json(e) : json({ error: 'الحلقة غير موجودة' }, 404); }
       return json({ error: 'not found' }, 404);
     } catch (e) {
       return json({ error: String((e && e.message) || e) }, 500);

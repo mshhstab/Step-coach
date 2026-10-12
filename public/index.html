@@ -233,6 +233,7 @@ async function home(){
     <div class="sheet today">${action}</div>
     ${s.due ? `<button class="btn ghost wide" id="rev" style="margin-top:10px">راجع غلطاتك السابقة (${s.due})</button>` : ''}
     ${p.done ? `<button class="btn ghost wide" id="hist" style="margin-top:10px">دروسي السابقة</button>` : ''}
+    <button class="btn ghost wide" id="walk" style="margin-top:10px">🎧 حلقة المشي اليومية</button>
 
     <h2>آخر أسبوعين</h2>
     <div class="week">${s.last14.map(d => `<span class="${d.xp >= maxXp * .6 ? 'on' : d.xp ? 'mid' : ''}" title="${d.date}: ${d.xp}"></span>`).join('')}</div>
@@ -250,7 +251,99 @@ async function home(){
   if (act) act.onclick = () => p.pendingTomorrow ? tomorrowTest(p.pendingTomorrow) : openDay(p.next);
   const rv = document.getElementById('rev'); if (rv) rv.onclick = review;
   const hs = document.getElementById('hist'); if (hs) hs.onclick = archive;
+  document.getElementById('walk').onclick = walk;
   document.getElementById('out').onclick = () => { try { localStorage.removeItem('step_key'); } catch(e) {} KEY = ''; gate(); };
+  toTop();
+}
+
+/* ---------------- Walking episode ---------------- */
+const fmtMin = sec => sec ? `${Math.round(sec / 60)} دقيقة` : '';
+const DATE_AR = d => { try { return new Date(d + 'T12:00:00Z').toLocaleDateString('ar-SA-u-ca-gregory', {weekday:'long', day:'numeric', month:'long'}); } catch(e) { return d; } };
+
+async function walk(){
+  loading('لحظة...');
+  let s; try { s = await api('/api/podcast'); } catch(e) { return fail(e, walk); }
+  const ep = s.episodes.find(e => e.date === s.today);
+  let main;
+  if (!s.ready){
+    main = `<p class="no">الحلقة تحتاج ربط Workers AI ومخزن الصوت في إعدادات الـ Worker.</p>`;
+  } else if (ep && ep.status === 'ready'){
+    main = `<div class="kicker muted">حلقة اليوم · ${fmtMin(ep.seconds)}</div><h3 class="en" style="margin:0 0 10px">${esc(ep.title)}</h3>
+      <audio controls preload="metadata" style="width:100%" src="${s.audioBase + ep.date}.mp3"></audio>
+      <button class="link" id="tr" data-d="${ep.date}">نص الحلقة وكلمات اليوم</button>`;
+  } else if (ep && (ep.status === 'audio' || ep.status === 'script')){
+    const pc = ep.pieces_total ? Math.round(ep.pieces_done / ep.pieces_total * 100) : 0;
+    main = `<div class="kicker muted">حلقة اليوم</div><h3>${ep.status === 'script' ? 'Claude يكتب نص الحلقة...' : `نسجّل الصوت: ${pc}٪`}</h3>
+      <div class="bar" style="margin:8px 0 12px"><i style="width:${ep.status === 'script' ? 5 : pc}%"></i></div>
+      <p class="muted">تنبني تلقائياً على دفعات كل دقيقة، وتاخذ تقريباً ١٠ إلى ١٥ دقيقة. تقدر تقفل الصفحة.</p>
+      ${ep.error ? `<p class="muted" style="font-size:13px">آخر ملاحظة: ${esc(ep.error)}</p>` : ''}
+      <button class="btn ghost" id="rf">تحديث</button>`;
+  } else {
+    main = `<div class="kicker muted">حلقة اليوم</div>
+      <h3>${ep && ep.status === 'failed' ? 'تعطّلت حلقة اليوم' : 'ما انبنت بعد'}</h3>
+      <p class="muted">${ep && ep.error ? esc(ep.error) + '<br>' : ''}الحلقة تنبني تلقائياً كل يوم الساعة ${s.startHour} الفجر. تبيها الحين؟</p>
+      <button class="btn wide" id="bd">جهّز حلقة اليوم الحين</button>`;
+  }
+  const past = s.episodes.filter(e => e.date !== s.today && e.status === 'ready');
+  app.innerHTML = `<div class="top"><span><strong>حلقة المشي</strong></span><button class="link" id="back">الرئيسية</button></div>
+    <p class="muted">ساعة استماع مبنية على دروسك وغلطاتك: كلمات جديدة، قواعد، أسئلة بنمط الستيب، مقاطع استماع، ومحاضرة قصيرة. ردّد بصوت وأجب في الوقفات.</p>
+    <div class="sheet today">${main}</div>
+
+    <h2>اشترك مرة وحدة في تطبيق البودكاست</h2>
+    <div class="sheet">
+      <p>انسخ الرابط وأضفه في تطبيق البودكاست، وكل يوم تنزل الحلقة لحالها وتشتغل والشاشة مقفلة.</p>
+      <div class="passage en" style="max-height:none;font-size:13px;word-break:break-all;white-space:normal;margin-bottom:10px">${esc(s.feed)}</div>
+      <button class="btn wide" id="cp">انسخ رابط البودكاست</button>
+      <details><summary>كيف أضيفه؟</summary>
+        <p style="margin-top:8px"><strong>Apple Podcasts:</strong> المكتبة ← النقاط الثلاث فوق ← «متابعة برنامج بواسطة رابط» ← الصق الرابط.</p>
+        <p><strong>Pocket Casts / Overcast / Castbox:</strong> ابحث عن خيار «إضافة برابط» أو «Add by URL» والصق الرابط.</p>
+        <p class="muted">الرابط خاص فيك. لا تنشره، لأن فيه رمز سري.</p>
+      </details>
+    </div>
+
+    ${past.length ? `<h2>حلقات سابقة</h2><ul class="hist">${past.map(e => `<li class="rev"><div class="row" style="justify-content:space-between">
+      <span>${DATE_AR(e.date)} <span class="muted">· ${fmtMin(e.seconds)}</span></span><button class="link" data-tr="${e.date}">النص</button></div>
+      <div class="en" style="margin:2px 0 6px">${esc(e.title)}</div>
+      <audio controls preload="none" style="width:100%" src="${s.audioBase + e.date}.mp3"></audio></li>`).join('')}</ul>` : ''}
+
+    <p class="center" style="margin-top:24px"><button class="link" id="tg">${s.enabled ? 'إيقاف الحلقة اليومية' : 'تشغيل الحلقة اليومية'}</button></p>`;
+  document.getElementById('back').onclick = home;
+  document.getElementById('cp').onclick = async () => { try { await navigator.clipboard.writeText(s.feed); toast('انسخ الرابط'); } catch(e) { toast('انسخه يدوياً من فوق'); } };
+  document.getElementById('tg').onclick = async () => { try { await api('/api/podcast/toggle', {method:'POST', body:JSON.stringify({enabled:!s.enabled})}); } catch(e) {} walk(); };
+  const rf = document.getElementById('rf'); if (rf) rf.onclick = walk;
+  const tr = document.getElementById('tr'); if (tr) tr.onclick = () => transcript(tr.dataset.d);
+  app.querySelectorAll('[data-tr]').forEach(b => b.onclick = () => transcript(b.dataset.tr));
+  const bd = document.getElementById('bd');
+  if (bd) bd.onclick = async () => {
+    loading('Claude يكتب نص الحلقة...', 'ياخذ دقيقة إلى ثلاث دقايق. بعدها يتسجل الصوت تلقائياً.');
+    try { await api('/api/podcast/build', {method:'POST', body:'{}'}); } catch(e) { return fail(e, walk); }
+    walk();
+  };
+  toTop();
+}
+
+async function transcript(date){
+  loading('لحظة...');
+  let e; try { e = await api('/api/podcast/ep/' + date); } catch(err) { return fail(err, walk); }
+  const c = e.script || {};
+  const opt = q => `<ol type="A" class="en" style="margin:4px 0 0">${q.options.map((o, i) => `<li ${i === q.answer ? 'style="font-weight:600;color:var(--green)"' : ''}>${esc(o)}</li>`).join('')}</ol>`;
+  app.innerHTML = `<div class="top"><span><strong>نص الحلقة</strong> · ${DATE_AR(e.date)}</span><button class="link" id="back">رجوع</button></div>
+    <h1 class="en" style="font-size:22px">${esc(e.title)}</h1>
+    ${c.summary_ar ? `<p class="muted">${esc(c.summary_ar)}</p>` : ''}
+    <h2>كلمات اليوم</h2>
+    <ul class="ex" style="border-top:0;margin-top:0">${(c.words || []).map(w => `<li><div class="row" style="justify-content:space-between"><strong class="en">${esc(w.w)}</strong><span>${esc(w.ar)}</span></div>
+      <div class="en muted" style="font-size:15px">${esc(w.def)}</div><div class="en" style="font-size:15px">${esc(w.ex)}</div></li>`).join('')}</ul>
+    ${c.grammar && c.grammar.explain && c.grammar.explain.length ? `<h2>القواعد: <span class="en">${esc(c.grammar.topic)}</span></h2>
+      <div class="sheet en" style="font-size:16px">${c.grammar.explain.map(p => `<p>${esc(p)}</p>`).join('')}
+      <ul>${(c.grammar.examples || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+    <details><summary>أسئلة القواعد (${(c.drills || []).length})</summary>${(c.drills || []).map((q, i) => `<div class="rev"><div class="en">${i + 1}. ${esc(q.q)}</div>${opt(q)}<div class="en muted" style="font-size:14px">${esc(q.why)}</div></div>`).join('')}</details>
+    <details><summary>مقاطع الاستماع (${(c.clips || []).length})</summary>${(c.clips || []).map((k, i) => `<div class="rev"><strong>مقطع ${i + 1}</strong><p class="en">${esc(k.script)}</p>
+      ${k.questions.map(q => `<div class="en">${esc(q.q)}</div>${opt(q)}`).join('')}</div>`).join('')}</details>
+    ${c.talk && c.talk.text ? `<details><summary>المحاضرة: <span class="en">${esc(c.talk.title)}</span></summary><div class="passage en" style="max-height:none">${esc(c.talk.text)}</div></details>` : ''}
+    ${c.story && c.story.text ? `<details><summary>القصة: <span class="en">${esc(c.story.title)}</span></summary><div class="passage en" style="max-height:none">${esc(c.story.text)}</div></details>` : ''}
+    <div class="row" style="margin-top:22px"><button class="btn ghost wide" id="back2">رجوع</button></div>`;
+  document.getElementById('back').onclick = walk;
+  document.getElementById('back2').onclick = walk;
   toTop();
 }
 

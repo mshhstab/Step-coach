@@ -23,3 +23,12 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 INSERT OR IGNORE INTO meta(key,value) VALUES
  ('xp','0'),
  ('placement','{"date":"2026-10-06","estimate":56,"sections":{"grammar":39,"reading":71,"listening":80,"compositional":0},"weak_topics":["القلب (Inversion)","الشرط الثالث","الكلام المنقول","صيغة الـ Subjunctive","صيغة ing بعد حروف الجر","المطابقة مع المفرد","مطابقة الفاعل والفعل","أدوات الربط","تركيب الجملة"]}');
+
+-- حلقة المشي (البودكاست)
+CREATE TABLE IF NOT EXISTS episodes (
+  date TEXT PRIMARY KEY, status TEXT, attempts INTEGER DEFAULT 0, tts_errors INTEGER DEFAULT 0, lease INTEGER,
+  title TEXT, script TEXT, words TEXT, plan TEXT, frame TEXT,
+  pieces_done INTEGER DEFAULT 0, pieces_total INTEGER DEFAULT 0, bytes INTEGER, seconds REAL,
+  error TEXT, created_at TEXT, done_at TEXT
+);
+CREATE TABLE IF NOT EXISTS ep_pieces (date TEXT, idx INTEGER, bytes INTEGER, frames INTEGER, PRIMARY KEY(date, idx));

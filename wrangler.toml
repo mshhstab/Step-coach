@@ -13,5 +13,17 @@ binding = "DB"
 database_name = "step-db"
 database_id = "28cfa6e1-6c1a-43a2-ba27-b34e78002825"
 
+# حلقة المشي: تحويل النص إلى صوت + تخزين الملفات الصوتية
+[ai]
+binding = "AI"
+
+[[kv_namespaces]]
+binding = "POD"
+id = "3704b7f061c74583b511103b2df2deed"
+
+# كل دقيقة: يبني حلقة اليوم على دفعات (من الساعة ٣ الفجر بتوقيت السعودية)
+[triggers]
+crons = ["* * * * *"]
+
 [vars]
 MODEL = "claude-sonnet-5-5"
