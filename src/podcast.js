@@ -160,12 +160,26 @@ Return JSON:
 Spread correct answers evenly across 0,1,2,3.`;
 }
 
-async function claude(env, prompt) {
+// النماذج الجديدة تفكّر قبل الرد، والتفكير ياكل من max_tokens.
+// النص هنا كتابة مباشرة، فنقلل التفكير ونرفع السقف.
+function body(model, prompt, lean) {
+  const b = { model, max_tokens: 32000, system: SYS, messages: [{ role: 'user', content: prompt }] };
+  if (lean) {
+    if (/sonnet-5/.test(model)) b.thinking = { type: 'between_tools' };
+    b.output_config = { effort: 'medium' };
+  }
+  return b;
+}
+
+async function claude(env, prompt, lean = true) {
+  const model = env.MODEL || 'claude-sonnet-5-5';
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: env.MODEL || 'claude-sonnet-5-5', max_tokens: 12000, system: SYS, messages: [{ role: 'user', content: prompt }] })
+    body: JSON.stringify(body(model, prompt, lean))
   });
+  // لو النموذج ما يدعم هذي الإعدادات، نعيد بدونها
+  if (r.status === 400 && lean) { const t = await r.text(); if (/thinking|effort|output_config/i.test(t)) return claude(env, prompt, false); throw new Error('Claude API: ' + t.slice(0, 200)); }
   const raw = await r.text();
   let d; try { d = JSON.parse(raw); } catch (e) { throw new Error(`رد Claude انقطع (HTTP ${r.status})`); }
   if (!r.ok) throw new Error('Claude API: ' + ((d.error && d.error.message) || r.status));
