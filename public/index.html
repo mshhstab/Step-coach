@@ -275,7 +275,7 @@ async function walk(){
     const pc = ep.pieces_total ? Math.round(ep.pieces_done / ep.pieces_total * 100) : 0;
     main = `<div class="kicker muted">حلقة اليوم</div><h3>${ep.status === 'script' ? 'Claude يكتب نص الحلقة...' : `نسجّل الصوت: ${pc}٪`}</h3>
       <div class="bar" style="margin:8px 0 12px"><i style="width:${ep.status === 'script' ? 5 : pc}%"></i></div>
-      <p class="muted">تنبني تلقائياً على دفعات كل دقيقة، وتاخذ تقريباً ١٠ إلى ١٥ دقيقة. تقدر تقفل الصفحة.</p>
+      <p class="muted">${ep.status === 'script' ? 'كتابة النص تاخذ ١ إلى ٣ دقايق، بعدها' : ''} تنبني تلقائياً على دفعات كل دقيقة، والمجموع تقريباً ١٠ إلى ١٥ دقيقة. تقدر تقفل الصفحة وترجع.</p>
       ${ep.error ? `<p class="muted" style="font-size:13px">آخر ملاحظة: ${esc(ep.error)}</p>` : ''}
       <button class="btn ghost" id="rf">تحديث</button>`;
   } else {
@@ -315,8 +315,8 @@ async function walk(){
   app.querySelectorAll('[data-tr]').forEach(b => b.onclick = () => transcript(b.dataset.tr));
   const bd = document.getElementById('bd');
   if (bd) bd.onclick = async () => {
-    loading('Claude يكتب نص الحلقة...', 'ياخذ دقيقة إلى ثلاث دقايق. بعدها يتسجل الصوت تلقائياً.');
     try { await api('/api/podcast/build', {method:'POST', body:'{}'}); } catch(e) { return fail(e, walk); }
+    toast('بدأ التجهيز. تقدر تقفل الصفحة');
     walk();
   };
   toTop();

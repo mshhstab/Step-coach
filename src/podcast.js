@@ -116,12 +116,18 @@ async function scriptInputs(env, t) {
   return { weak, lastLesson, nextItem, mistakes, used, review };
 }
 
-function scriptPrompt(inp) {
+function context(inp) {
   const L = inp.lastLesson;
-  return `Build today's walking episode.
-Most recent lesson he studied: ${L ? `"${L.title}". Arabic teaching notes: ${L.notes}. Examples: ${L.examples.join(' / ')}` : 'none yet'}.
+  return `Most recent lesson he studied: ${L ? `"${L.title}". Arabic teaching notes: ${L.notes}. Examples: ${L.examples.join(' / ')}` : 'none yet'}.
 His next lesson in the app: "${inp.nextItem.title}" (${inp.nextItem.focus}).
-His weakest topics right now: ${inp.weak.join(', ') || 'none yet'}.
+His weakest topics right now: ${inp.weak.join(', ') || 'none yet'}.`;
+}
+
+// الجزء الأول: كلمات + قواعد + أسئلة (مبني على غلطاتك)
+function promptA(inp) {
+  const L = inp.lastLesson;
+  return `Build part A of today's walking episode.
+${context(inp)}
 His recent grammar mistakes (JSON): ${JSON.stringify(inp.mistakes)}
 Words already taught in earlier episodes (do not reuse): ${inp.used.join(', ') || 'none'}.
 
@@ -133,10 +139,21 @@ Return JSON:
  "words": [15 new academic words that often appear in STEP reading passages, each {"w": word, "ar": Arabic meaning (1-3 words), "def": simple English definition (max 14 words), "ex": natural example sentence (9-16 words)}],
  "grammar": {"topic": short name, "explain": [5 spoken paragraphs, 45-80 words each, teaching ${L ? 'the most recent lesson topic, then a quick refresher on his single weakest topic' : 'his single weakest topic'}], "examples": [8 model sentences for listen-and-repeat, 7-15 words each]},
  "drills": [15 STEP sentence-completion items. First, for each of his recent mistakes, write a NEW sentence that tests the same rule (never copy his old sentence). Fill the rest with his weak topics. Each {"q": sentence with ___ for the blank, "options": [4 short options], "answer": 0-3, "full": the complete correct sentence, "why": 1-2 spoken sentences explaining the rule and the trap}],
- "clips": [8 STEP-style listening clips: mix of short lectures, announcements, a radio talk, a student talking about a problem. Each {"script": 100-160 words of natural single-speaker speech, "questions": [2 {"q": question, "options": [4 short options], "answer": 0-3}]}],
- "talk": {"title": title, "text": a 650-750 word academic talk on a STEP-like topic (science, health, history, education, environment, technology), upper-intermediate level, using at least 6 of today's words},
- "story": {"title": title, "text": a 380-450 word true-to-life story or biography told in the past tense, rich in narrative tenses, linking words and today's grammar point},
  "closing": 2-3 spoken sentences: quick recap and a nudge to open the app for "${inp.nextItem.title}"
+}
+Spread correct answers evenly across 0,1,2,3.`;
+}
+
+// الجزء الثاني: استماع + محاضرة + قصة
+function promptB(inp) {
+  return `Build part B of today's walking episode: listening practice.
+${context(inp)}
+
+Return JSON:
+{
+ "clips": [8 STEP-style listening clips: mix of short lectures, announcements, a radio talk, a student talking about a problem. Each {"script": 100-160 words of natural single-speaker speech, "questions": [2 {"q": question, "options": [4 short options], "answer": 0-3}]}],
+ "talk": {"title": title, "text": a 650-750 word academic talk on a STEP-like topic (science, health, history, education, environment, technology), upper-intermediate level, rich in academic vocabulary},
+ "story": {"title": title, "text": a 380-450 word true-to-life story or biography told in the past tense, rich in narrative tenses and linking words}
 }
 Spread correct answers evenly across 0,1,2,3.`;
 }
@@ -145,12 +162,20 @@ async function claude(env, prompt) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: env.MODEL || 'claude-sonnet-5-5', max_tokens: 14000, system: SYS, messages: [{ role: 'user', content: prompt }] })
+    body: JSON.stringify({ model: env.MODEL || 'claude-sonnet-5-5', max_tokens: 12000, system: SYS, messages: [{ role: 'user', content: prompt }] })
   });
-  const d = await r.json();
+  const raw = await r.text();
+  let d; try { d = JSON.parse(raw); } catch (e) { throw new Error(`رد Claude انقطع (HTTP ${r.status})`); }
   if (!r.ok) throw new Error('Claude API: ' + ((d.error && d.error.message) || r.status));
+  if (d.stop_reason === 'max_tokens') throw new Error('نص الحلقة طلع أطول من الحد');
   const text = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-  return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+  try { return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)); }
+  catch (e) { throw new Error('نص الحلقة طلع ناقص (JSON)'); }
+}
+
+async function part(env, prompt) {
+  try { return await claude(env, prompt); }
+  catch (e) { if (/^Claude API/.test(e.message) && !/overloaded|rate/i.test(e.message)) throw e; return await claude(env, prompt); }
 }
 
 const arr = x => Array.isArray(x) ? x : [];
@@ -281,9 +306,8 @@ export async function writeScript(env, date) {
   if (!(await takeLease(env, date, 600e3))) return { busy: true };
   try {
     const inp = await scriptInputs(env, date);
-    let s;
-    try { s = cleanScript(await claude(env, scriptPrompt(inp))); }
-    catch (e) { if (e instanceof SyntaxError || /ناقص/.test(e.message)) s = cleanScript(await claude(env, scriptPrompt(inp))); else throw e; }
+    const [a, b] = await Promise.all([part(env, promptA(inp)), part(env, promptB(inp))]);
+    const s = cleanScript({ ...a, ...b });
     const done = await env.DB.prepare('SELECT MAX(day) d FROM days WHERE quiz_done=1').first();
     const plan = buildPlan(s, inp.review, (done && done.d) || 0);
     await env.DB.batch([
@@ -431,7 +455,10 @@ export async function feed(req, env, token) {
 <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel>
 <title>مدرّب الستيب · حلقة المشي</title><link>${xml(new URL(req.url).origin)}</link><language>en</language>
 <description>حلقة يومية للمشي: كلمات وقواعد وأسئلة استماع بنمط الستيب، مبنية على دروسك وغلطاتك.</description>
-<itunes:author>Step Coach</itunes:author><itunes:explicit>false</itunes:explicit><itunes:block>Yes</itunes:block>
+<itunes:author>Step Coach</itunes:author><itunes:explicit>false</itunes:explicit><itunes:type>episodic</itunes:type>
+<itunes:image href="${xml(new URL(req.url).origin)}/podcast-cover.png"/>
+<image><url>${xml(new URL(req.url).origin)}/podcast-cover.png</url><title>مدرّب الستيب · حلقة المشي</title><link>${xml(new URL(req.url).origin)}</link></image>
+<itunes:category text="Education"><itunes:category text="Language Learning"/></itunes:category>
 ${items}
 </channel></rss>`;
   return new Response(body, { headers: { 'content-type': 'application/rss+xml; charset=utf-8', 'cache-control': 'no-store' } });
@@ -460,12 +487,12 @@ export async function podBuild(env) {
   if (!env.AI || !env.POD) throw new Error('ربط Workers AI أو مخزن الصوت ناقص في الإعدادات');
   const t = today();
   const e = await env.DB.prepare('SELECT status FROM episodes WHERE date=?').bind(t).first();
-  if (e && e.status !== 'failed' && e.status !== 'script') return { started: false, status: e.status };
+  if (e && (e.status === 'ready' || e.status === 'audio')) return { queued: false, status: e.status };
+  // نحطها في الطابور فقط؛ التشغيل المجدول (كل دقيقة) يكتبها ويسجّلها، عشان ما تنقطع لو قفلت الصفحة
   await env.DB.prepare(
     "INSERT INTO episodes(date,status,attempts,created_at) VALUES(?,'script',0,?) ON CONFLICT(date) DO UPDATE SET status='script', attempts=0, tts_errors=0, lease=NULL, error=NULL")
     .bind(t, now()).run();
-  await writeScript(env, t);
-  return { started: true, status: 'audio' };
+  return { queued: true, status: 'script' };
 }
 
 export async function podToggle(env, on) { await setMeta(env, 'pod_enabled', !!on); return { enabled: !!on }; }
