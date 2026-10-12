@@ -136,4 +136,8 @@ def render():
 
 
 if __name__ == "__main__":
-    {"check": check, "render": render}[sys.argv[1]]()
+    try:
+        {"check": check, "render": render}[sys.argv[1]]()
+    except Exception as e:  # يظهر كملاحظة في صفحة التشغيل (بدون أي نص من الحلقة)
+        print(f"::error::{type(e).__name__}: {str(e)[:300]}")
+        raise
