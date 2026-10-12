@@ -1,5 +1,5 @@
 import { CURRICULUM } from './curriculum.js';
-import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle, podWork, ttsProbe, ghApi } from './podcast.js';
+import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle, podWork, ghApi } from './podcast.js';
 
 const TOTAL = CURRICULUM.length;
 const INTERVALS = [1, 3, 7, 14, 30, 60];           // التكرار المتباعد بالأيام
@@ -23,11 +23,10 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     // روابط البودكاست: بدون كلمة مرور، لكن الرابط فيه رمز سري مشتق من APP_KEY
-    const pm = url.pathname.match(/^\/podcast\/([0-9a-f]{24})\/(feed\.xml|tts-probe|\d{4}-\d{2}-\d{2}\.mp3)$/);
+    const pm = url.pathname.match(/^\/podcast\/([0-9a-f]{24})\/(feed\.xml|\d{4}-\d{2}-\d{2}\.mp3)$/);
     if (pm) {
       if (!env.APP_KEY || pm[1] !== await feedToken(env)) return new Response('not found', { status: 404 });
       try {
-        if (pm[2] === 'tts-probe') return json(await ttsProbe(env, url.searchParams.get('text')));
         return pm[2] === 'feed.xml' ? await feed(req, env, pm[1]) : await serveAudio(req, env, pm[2].slice(0, 10));
       } catch (e) { return new Response(String((e && e.message) || e), { status: 500 }); }
     }

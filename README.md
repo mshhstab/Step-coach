@@ -6,7 +6,7 @@
 - `src/worker.js` الـ API: يكلم Claude ويحفظ في D1
 - `src/curriculum.js` منهج ٢٢ أسبوع (١٥٤ يوم)
 - `src/podcast.js` حلقة المشي اليومية (بودكاست خاص)
-- `src/mp3.js` لصق المقاطع الصوتية وتوليد الوقفات
+- `tools/podcast/render.py` و `.github/workflows/podcast.yml` تسجيل صوت الحلقة في GitHub Actions
 - `public/index.html` واجهة التطبيق
 - `schema.sql` جداول قاعدة البيانات (منفّذة مسبقاً على step-db)
 - `wrangler.toml` الإعدادات

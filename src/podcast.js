@@ -1,8 +1,7 @@
 // حلقة المشي اليومية: Claude يكتب النص من دروسك وغلطاتك، MeloTTS يحوّله صوت، ونقدّمه كبودكاست خاص
 import { CURRICULUM } from './curriculum.js';
-import { cleanMp3, silenceFrame, parseHeader } from './mp3.js';
+import { silenceFrame } from './mp3.js';
 
-const TTS_MODEL = '@cf/myshell-ai/melotts';
 const START_HOUR = 3;          // تبدأ الحلقة تنبني من الساعة ٣ الفجر بتوقيت السعودية
 const RUN_MS = 70000;          // أقصى وقت لكل تشغيل مجدول
 const RUN_MAX = 25;            // أقصى عدد مقاطع صوتية لكل تشغيل
@@ -344,46 +343,6 @@ export async function writeScript(env, date) {
   }
 }
 
-/* ---------- تحويل النص إلى صوت ---------- */
-async function tts(env, text) {
-  const r = await env.AI.run(TTS_MODEL, { prompt: text, lang: 'en' });
-  if (r instanceof ReadableStream) return new Uint8Array(await new Response(r).arrayBuffer());
-  if (r instanceof ArrayBuffer || ArrayBuffer.isView(r)) return new Uint8Array(r.buffer ? r.buffer : r);
-  const b64 = r && (r.audio || (r.result && r.result.audio));
-  if (typeof b64 !== 'string') throw new Error('رد غير متوقع من MeloTTS');
-  const bin = atob(b64), u = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-  return u;
-}
-
-export async function renderAudio(env, date, started = Date.now(), limit = { ms: RUN_MS, max: RUN_MAX }) {
-  if (!(await takeLease(env, date, Math.max(45e3, limit.ms + 15e3)))) return;
-  let ep = await env.DB.prepare('SELECT plan,frame,pieces_total FROM episodes WHERE date=?').bind(date).first();
-  const plan = JSON.parse(ep.plan);
-  const { results } = await env.DB.prepare('SELECT idx FROM ep_pieces WHERE date=?').bind(date).all();
-  const have = new Set(results.map(r => r.idx));
-  let frame = ep.frame ? JSON.parse(ep.frame) : null, n = 0;
-  for (let i = 0; i < plan.pieces.length && n < limit.max && Date.now() - started < limit.ms; i++) {
-    if (have.has(i)) continue;
-    n++;
-    try {
-      const c = cleanMp3(await tts(env, plan.pieces[i]));
-      if (!c.frames) throw new Error('مقطع صوت فاضي');
-      if (!frame) { frame = c.info; await env.DB.prepare('UPDATE episodes SET frame=? WHERE date=?').bind(JSON.stringify(frame), date).run(); }
-      if (c.info.sr !== frame.sr) throw new Error('صيغة صوت مختلفة');
-      await putAudio(env, `ep/${date}/${i}.mp3`, c.data);
-      await env.DB.prepare('INSERT OR REPLACE INTO ep_pieces(date,idx,bytes,frames) VALUES(?,?,?,?)').bind(date, i, c.data.length, c.frames).run();
-      have.add(i);
-    } catch (e) {
-      const r = await env.DB.prepare('UPDATE episodes SET tts_errors=tts_errors+1, error=? WHERE date=? RETURNING tts_errors')
-        .bind(`مقطع ${i}: ${String((e && e.message) || e).slice(0, 200)}`, date).first();
-      if (r && r.tts_errors >= 12) { await env.DB.prepare("UPDATE episodes SET status='failed', lease=NULL WHERE date=?").bind(date).run(); return; }
-    }
-  }
-  if (have.size >= plan.pieces.length) await finish(env, date);
-  else await env.DB.prepare('UPDATE episodes SET pieces_done=?, lease=NULL WHERE date=?').bind(have.size, date).run();
-}
-
 async function layout(env, date) {
   const ep = await env.DB.prepare('SELECT * FROM episodes WHERE date=?').bind(date).first();
   if (!ep) return null;
@@ -402,12 +361,6 @@ async function layout(env, date) {
     else { const nf = Math.max(1, Math.round(v / sil.seconds)); segs.push({ sil: nf, size: nf * sil.len }); bytes += nf * sil.len; frames += nf; }
   }
   return { ep, segs, bytes, seconds: frames * frame.samples / frame.sr, sil };
-}
-
-async function finish(env, date) {
-  const L = await layout(env, date);
-  await env.DB.prepare("UPDATE episodes SET status='ready', pieces_done=pieces_total, bytes=?, seconds=?, done_at=?, lease=NULL WHERE date=?")
-    .bind(L.bytes, L.seconds, now(), date).run();
 }
 
 /* ---------- تقديم الملف الصوتي (يدعم Range عشان تطبيقات البودكاست) ---------- */
@@ -525,21 +478,6 @@ export async function podWork(env) {
   await tick(env, { ms: 22000, max: 10 });
   const e = await env.DB.prepare('SELECT status,pieces_done,pieces_total,error FROM episodes WHERE date=?').bind(today()).first();
   return e || { status: null };
-}
-
-// فحص سريع لمخرجات تحويل النص إلى صوت (للتشخيص فقط)
-export async function ttsProbe(env, text) {
-  text = String(text || 'Hello. This is a short test of the walking lesson.').slice(0, MAX_PIECE);
-  const r = await env.AI.run(TTS_MODEL, { prompt: text, lang: 'en' });
-  const kind = r instanceof ReadableStream ? 'stream' : (r instanceof ArrayBuffer ? 'arraybuffer' : (ArrayBuffer.isView(r) ? 'view' : typeof r));
-  const keys = r && typeof r === 'object' && !(r instanceof ReadableStream) && !ArrayBuffer.isView(r) && !(r instanceof ArrayBuffer) ? Object.keys(r) : [];
-  let u = null; try { u = await tts(env, text); } catch (e) { return { kind, keys, error: String(e.message) }; }
-  const c = cleanMp3(u);
-  return { kind, keys, bytes: u.length, head: Array.from(u.subarray(0, 48)).map(x => x.toString(16).padStart(2, '0')).join(' '),
-    ascii: String.fromCharCode(...u.subarray(0, 16)).replace(/[^\x20-\x7e]/g, '.'), frames: c.frames, info: c.info, out: c.data.length,
-    walk: (() => { const o = []; let i = 0; if (u[0] === 0x49) i = 10 + (((u[6] & 127) << 21) | ((u[7] & 127) << 14) | ((u[8] & 127) << 7) | (u[9] & 127));
-      for (let k = 0; k < 6 && i < u.length; k++) { const h = parseHeader(u, i); o.push({ at: i, hdr: Array.from(u.subarray(i, i + 4)).map(x => x.toString(16)).join(''), len: h && h.len }); if (!h) break; i += h.len; } return o; })(),
-    tail: Array.from(u.subarray(Math.max(0, u.length - 16))).map(x => x.toString(16).padStart(2, '0')).join(' ') };
 }
 
 export async function podToggle(env, on) { await setMeta(env, 'pod_enabled', !!on); return { enabled: !!on }; }

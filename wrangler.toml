@@ -13,16 +13,12 @@ binding = "DB"
 database_name = "step-db"
 database_id = "28cfa6e1-6c1a-43a2-ba27-b34e78002825"
 
-# حلقة المشي: تحويل النص إلى صوت + تخزين الملفات الصوتية
-[ai]
-binding = "AI"
-
+# حلقة المشي: تخزين الملفات الصوتية (الصوت نفسه يتسجّل في GitHub Actions)
 [[kv_namespaces]]
 binding = "POD"
 id = "3704b7f061c74583b511103b2df2deed"
 
-# الجدولة (Cron) تنضاف من لوحة Cloudflare: Settings ← Trigger Events ← Cron: * * * * *
-# (شلناها من هنا لأنها كانت توقف النشر)
+# ما نحتاج جدولة (Cron) في Cloudflare: الجدولة اليومية في GitHub Actions
 
 [vars]
 MODEL = "claude-sonnet-5-5"
