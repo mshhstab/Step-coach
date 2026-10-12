@@ -21,9 +21,8 @@ binding = "AI"
 binding = "POD"
 id = "3704b7f061c74583b511103b2df2deed"
 
-# كل دقيقة: يبني حلقة اليوم على دفعات (من الساعة ٣ الفجر بتوقيت السعودية)
-[triggers]
-crons = ["* * * * *"]
+# الجدولة (Cron) تنضاف من لوحة Cloudflare: Settings ← Trigger Events ← Cron: * * * * *
+# (شلناها من هنا لأنها كانت توقف النشر)
 
 [vars]
 MODEL = "claude-sonnet-5-5"
