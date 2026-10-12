@@ -25,6 +25,8 @@ const today = () => new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10)
 const riyadhHour = () => new Date(Date.now() + 3 * 3600e3).getUTCHours();
 const addDays = (d, n) => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 const now = () => new Date().toISOString();
+const dow = d => new Date(d + 'T00:00:00Z').getUTCDay();   // 5 الجمعة 6 السبت
+const isWeekly = d => dow(d) === 6;                        // السبت: مراجعة الأسبوع
 const LET = ['A', 'B', 'C', 'D'];
 
 /* ---------- رابط البودكاست السري (مشتق من APP_KEY) ---------- */
@@ -49,7 +51,8 @@ export async function tick(env, opts = {}) {
   const t = today(), started = Date.now(), limit = { ms: opts.ms || RUN_MS, max: opts.max || RUN_MAX };
   if (await getMeta(env, 'pod_enabled', true)) {
     const ep = await env.DB.prepare('SELECT date FROM episodes WHERE date=?').bind(t).first();
-    if (!ep && riyadhHour() >= START_HOUR) await env.DB.prepare(
+    // الجمعة ما تنزل حلقة تلقائياً (تقدر تطلبها يدوياً من التطبيق)
+    if (!ep && dow(t) !== 5 && riyadhHour() >= START_HOUR) await env.DB.prepare(
       "INSERT OR IGNORE INTO episodes(date,status,attempts,created_at) VALUES(?,'script',0,?)").bind(t, now()).run();
   }
   // نص ناقص؟ نكتبه (مع إعادة محاولة بعد ٤ دقايق، ٣ مرات بالكثير)
@@ -115,11 +118,26 @@ async function scriptInputs(env, t) {
   const used = [...new Set(eps.flatMap(e => JSON.parse(e.words || '[]').map(w => w.w)))].slice(0, 400);
   const want = new Set([1, 3, 7, 14, 30].map(n => addDays(t, -n)));
   const review = eps.filter(e => want.has(e.date)).flatMap(e => JSON.parse(e.words || '[]').slice(0, 4)).slice(0, 12);
-  return { weak, lastLesson, nextItem, mistakes, used, review };
+  // السبت: كل دروس الأسبوع (آخر ٧ أيام) بدل آخر درس فقط
+  let week = null;
+  if (isWeekly(t)) {
+    const { results: wl } = await env.DB.prepare(
+      "SELECT day,title,content FROM days WHERE kind IN ('lesson','targeted') AND quiz_done=1 AND done_date>=? ORDER BY day").bind(addDays(t, -7)).all();
+    week = wl.map(r => { const c = JSON.parse(r.content || '{}');
+      return { title: r.title, notes: (c.steps || []).map(x => x.explain_ar).join(' | ').slice(0, 600),
+        examples: (c.steps || []).flatMap(x => x.examples || []).slice(0, 3) }; });
+    if (!week.length) week = null;
+    const wkWords = eps.filter(e => e.date >= addDays(t, -7)).flatMap(e => JSON.parse(e.words || '[]'));
+    if (wkWords.length) review.splice(0, review.length, ...wkWords.slice(0, 20));
+  }
+  return { weak, lastLesson, nextItem, mistakes, used, review, week };
 }
 
 function context(inp) {
   const L = inp.lastLesson;
+  if (inp.week) return `TODAY IS THE WEEKLY REVIEW EPISODE (Saturday, no new lesson). Lessons he studied this week: ${inp.week.map(w => `"${w.title}" (notes: ${w.notes}; examples: ${w.examples.join(' / ')})`).join(' || ')}.
+His next lesson in the app: "${inp.nextItem.title}" (${inp.nextItem.focus}).
+His weakest topics right now: ${inp.weak.join(', ') || 'none yet'}.`;
   return `Most recent lesson he studied: ${L ? `"${L.title}". Arabic teaching notes: ${L.notes}. Examples: ${L.examples.join(' / ')}` : 'none yet'}.
 His next lesson in the app: "${inp.nextItem.title}" (${inp.nextItem.focus}).
 His weakest topics right now: ${inp.weak.join(', ') || 'none yet'}.`;
@@ -128,8 +146,10 @@ His weakest topics right now: ${inp.weak.join(', ') || 'none yet'}.`;
 // الجزء الأول: كلمات + قواعد + أسئلة (مبني على غلطاتك)
 function promptA(inp) {
   const L = inp.lastLesson;
+  const W = !!inp.week;
   return `Build part A of today's walking episode.
 ${context(inp)}
+${W ? `This is the weekly review: grammar and drills must cover ALL of this week's lessons (spread evenly), with extra drills on the topics he still gets wrong. Words: 15 new words as usual.` : ''}
 His recent grammar mistakes (JSON): ${JSON.stringify(inp.mistakes)}
 Words already taught in earlier episodes (do not reuse): ${inp.used.join(', ') || 'none'}.
 
@@ -139,7 +159,7 @@ Return JSON:
  "summary_ar": 1-2 Arabic sentences describing the episode,
  "intro": 2-3 warm spoken sentences naming today's focus,
  "words": [15 new academic words that often appear in STEP reading passages, each {"w": word, "ar": Arabic meaning (1-3 words), "def": simple English definition (max 14 words), "ex": natural example sentence (9-16 words)}],
- "grammar": {"topic": short name, "explain": [5 spoken paragraphs, 45-80 words each, teaching ${L ? 'the most recent lesson topic, then a quick refresher on his single weakest topic' : 'his single weakest topic'}], "examples": [8 model sentences for listen-and-repeat, 7-15 words each]},
+ "grammar": {"topic": short name, "explain": [5 spoken paragraphs, 45-80 words each, teaching ${W ? "a recap of this week's lessons, one short paragraph per lesson, ending with the rule he still confuses most" : L ? 'the most recent lesson topic, then a quick refresher on his single weakest topic' : 'his single weakest topic'}], "examples": [8 model sentences for listen-and-repeat, 7-15 words each]},
  "drills": [15 STEP sentence-completion items. First, for each of his recent mistakes, write a NEW sentence that tests the same rule (never copy his old sentence). Fill the rest with his weak topics. Each {"q": sentence with ___ for the blank, "options": [4 short options], "answer": 0-3, "full": the complete correct sentence, "why": 1-2 spoken sentences explaining the rule and the trap}],
  "closing": 2-3 spoken sentences: quick recap and a nudge to open the app for "${inp.nextItem.title}"
 }
@@ -150,6 +170,7 @@ Spread correct answers evenly across 0,1,2,3.`;
 function promptB(inp) {
   return `Build part B of today's walking episode: listening practice.
 ${context(inp)}
+${inp.week ? "Weekly review: where natural, let the clips, talk and story reuse grammar from this week's lessons." : ''}
 
 Return JSON:
 {
