@@ -1,11 +1,13 @@
 // حلقة المشي اليومية: Claude يكتب النص من دروسك وغلطاتك، MeloTTS يحوّله صوت، ونقدّمه كبودكاست خاص
 import { CURRICULUM } from './curriculum.js';
 import { silenceFrame } from './mp3.js';
+import { anthropic } from './usage.js';
 
 const START_HOUR = 3;          // تبدأ الحلقة تنبني من الساعة ٣ الفجر بتوقيت السعودية
 const RUN_MS = 70000;          // أقصى وقت لكل تشغيل مجدول
 const RUN_MAX = 25;            // أقصى عدد مقاطع صوتية لكل تشغيل
-const SCRIPT_LEASE = 240e3;    // مهلة قبل إعادة محاولة كتابة النص
+const SCRIPT_LEASE = 12 * 60e3; // مهلة قبل إعادة محاولة كتابة النص (أطول من أي كتابة، عشان ما تنكتب الحلقة مرتين بنفس الوقت)
+const MAX_TRIES = 2;            // أقصى محاولات كتابة نص الحلقة في اليوم
 const MAX_PIECE = 480;         // أقصى طول نص لكل مقطع
 
 const KEEP_DAYS = 25;         // مدة الاحتفاظ بصوت الحلقات
@@ -55,10 +57,14 @@ export async function tick(env, opts = {}) {
     if (!ep && dow(t) !== 5 && riyadhHour() >= START_HOUR) await env.DB.prepare(
       "INSERT OR IGNORE INTO episodes(date,status,attempts,created_at) VALUES(?,'script',0,?)").bind(t, now()).run();
   }
-  // نص ناقص؟ نكتبه (مع إعادة محاولة بعد ٤ دقايق، ٣ مرات بالكثير)
+  // محاولة انقطعت في النص وخلصت المحاولات؟ نوقفها بدل ما تعلق
+  await env.DB.prepare(
+    "UPDATE episodes SET status='failed', error=COALESCE(error,'انقطعت كتابة النص قبل ما تكمل') WHERE status='script' AND attempts>=? AND lease<?")
+    .bind(MAX_TRIES, Date.now() - SCRIPT_LEASE).run();
+  // نص ناقص؟ نكتبه (إعادة المحاولة بعد ١٢ دقيقة، مرتين بالكثير)
   const s = await env.DB.prepare(
-    "SELECT date FROM episodes WHERE status='script' AND attempts<3 AND (lease IS NULL OR lease<?) ORDER BY date DESC LIMIT 1")
-    .bind(Date.now() - SCRIPT_LEASE).first();
+    "SELECT date FROM episodes WHERE status='script' AND attempts<? AND (lease IS NULL OR lease<?) ORDER BY date DESC LIMIT 1")
+    .bind(MAX_TRIES, Date.now() - SCRIPT_LEASE).first();
   if (s) { try { await writeScript(env, s.date); } catch (e) { console.log('script failed', e && e.message); } return; }
   const a = await env.DB.prepare("SELECT date FROM episodes WHERE status='audio' ORDER BY date DESC LIMIT 1").first();
   // الصوت يتسجّل في GitHub Actions (انظر .github/workflows/podcast.yml)
@@ -76,13 +82,14 @@ export async function tick(env, opts = {}) {
 }
 
 async function takeLease(env, date, ms) {
-  const r = await env.DB.prepare('UPDATE episodes SET lease=? WHERE date=? AND (lease IS NULL OR lease<?)')
-    .bind(Date.now(), date, Date.now() - ms).run();
+  // المحاولة تنحسب من بدايتها، حتى لو انقطعت في النص ما تتكرر بلا نهاية
+  const r = await env.DB.prepare('UPDATE episodes SET lease=?, attempts=attempts+1 WHERE date=? AND attempts<? AND (lease IS NULL OR lease<?)')
+    .bind(Date.now(), date, MAX_TRIES, Date.now() - ms).run();
   return r.meta && r.meta.changes > 0;
 }
 
 /* ---------- كتابة النص ---------- */
-const SYS = `You write a daily audio lesson ("walking episode") for an adult Saudi learner preparing for the STEP English exam (Qiyas/ETEC). Level: intermediate, target 96+. He listens while walking for one hour with no screen, so everything must work by ear alone.
+const SYS = `You write a daily audio lesson ("walking episode") for an adult Saudi learner preparing for the STEP English exam (Qiyas/ETEC). Level: intermediate, target 96+. He listens while walking (about 30 minutes) with no screen, so everything must work by ear alone.
 STEP sections: Reading 40%, Structure/grammar 30%, Listening 20%, Compositional analysis (error identification) 10%. All items are 4-option multiple choice.
 Rules for every spoken field:
 - Clear, natural spoken English for an intermediate learner: short sentences, everyday words in explanations, no symbols, no formulas, no brackets, no emojis, no abbreviations like "e.g."; say grammar patterns in words ("had plus the past participle").
@@ -117,7 +124,7 @@ async function scriptInputs(env, t) {
   const { results: eps } = await env.DB.prepare('SELECT date,words FROM episodes WHERE words IS NOT NULL ORDER BY date DESC LIMIT 60').all();
   const used = [...new Set(eps.flatMap(e => JSON.parse(e.words || '[]').map(w => w.w)))].slice(0, 400);
   const want = new Set([1, 3, 7, 14, 30].map(n => addDays(t, -n)));
-  const review = eps.filter(e => want.has(e.date)).flatMap(e => JSON.parse(e.words || '[]').slice(0, 4)).slice(0, 12);
+  const review = eps.filter(e => want.has(e.date)).flatMap(e => JSON.parse(e.words || '[]').slice(0, 3)).slice(0, 8);
   // السبت: كل دروس الأسبوع (آخر ٧ أيام) بدل آخر درس فقط
   let week = null;
   if (isWeekly(t)) {
@@ -128,7 +135,7 @@ async function scriptInputs(env, t) {
         examples: (c.steps || []).flatMap(x => x.examples || []).slice(0, 3) }; });
     if (!week.length) week = null;
     const wkWords = eps.filter(e => e.date >= addDays(t, -7)).flatMap(e => JSON.parse(e.words || '[]'));
-    if (wkWords.length) review.splice(0, review.length, ...wkWords.slice(0, 20));
+    if (wkWords.length) review.splice(0, review.length, ...wkWords.slice(0, 12));
   }
   return { weak, lastLesson, nextItem, mistakes, used, review, week };
 }
@@ -149,7 +156,7 @@ function promptA(inp) {
   const W = !!inp.week;
   return `Build part A of today's walking episode.
 ${context(inp)}
-${W ? `This is the weekly review: grammar and drills must cover ALL of this week's lessons (spread evenly), with extra drills on the topics he still gets wrong. Words: 15 new words as usual.` : ''}
+${W ? `This is the weekly review: grammar and drills must cover ALL of this week's lessons (spread evenly), with extra drills on the topics he still gets wrong. Words: 10 new words as usual.` : ''}
 His recent grammar mistakes (JSON): ${JSON.stringify(inp.mistakes)}
 Words already taught in earlier episodes (do not reuse): ${inp.used.join(', ') || 'none'}.
 
@@ -158,61 +165,60 @@ Return JSON:
  "title": short English episode title, max 8 words,
  "summary_ar": 1-2 Arabic sentences describing the episode,
  "intro": 2-3 warm spoken sentences naming today's focus,
- "words": [15 new academic words that often appear in STEP reading passages, each {"w": word, "ar": Arabic meaning (1-3 words), "def": simple English definition (max 14 words), "ex": natural example sentence (9-16 words)}],
- "grammar": {"topic": short name, "explain": [5 spoken paragraphs, 45-80 words each, teaching ${W ? "a recap of this week's lessons, one short paragraph per lesson, ending with the rule he still confuses most" : L ? 'the most recent lesson topic, then a quick refresher on his single weakest topic' : 'his single weakest topic'}], "examples": [8 model sentences for listen-and-repeat, 7-15 words each]},
- "drills": [15 STEP sentence-completion items. First, for each of his recent mistakes, write a NEW sentence that tests the same rule (never copy his old sentence). Fill the rest with his weak topics. Each {"q": sentence with ___ for the blank, "options": [4 short options], "answer": 0-3, "full": the complete correct sentence, "why": 1-2 spoken sentences explaining the rule and the trap}],
+ "words": [10 new academic words that often appear in STEP reading passages, each {"w": word, "ar": Arabic meaning (1-3 words), "def": simple English definition (max 14 words), "ex": natural example sentence (9-16 words)}],
+ "grammar": {"topic": short name, "explain": [4 spoken paragraphs, 45-75 words each, teaching ${W ? "a recap of this week's lessons, one short paragraph per lesson, ending with the rule he still confuses most" : L ? 'the most recent lesson topic, then a quick refresher on his single weakest topic' : 'his single weakest topic'}], "examples": [6 model sentences for listen-and-repeat, 7-15 words each]},
+ "drills": [12 STEP sentence-completion items. First, for each of his recent mistakes, write a NEW sentence that tests the same rule (never copy his old sentence). Fill the rest with his weak topics. Each {"q": sentence with ___ for the blank, "options": [4 short options], "answer": 0-3, "full": the complete correct sentence, "why": 1-2 spoken sentences explaining the rule and the trap}],
  "closing": 2-3 spoken sentences: quick recap and a nudge to open the app for "${inp.nextItem.title}"
 }
 Spread correct answers evenly across 0,1,2,3.`;
 }
 
-// الجزء الثاني: استماع + محاضرة + قصة
+// الجزء الثاني: استماع + محاضرة قصيرة (الاستماع أقوى قسم عندك، فهو أقصر جزء)
 function promptB(inp) {
   return `Build part B of today's walking episode: listening practice.
 ${context(inp)}
-${inp.week ? "Weekly review: where natural, let the clips, talk and story reuse grammar from this week's lessons." : ''}
+${inp.week ? "Weekly review: where natural, let the clips and the talk reuse grammar from this week's lessons." : ''}
 
 Return JSON:
 {
- "clips": [8 STEP-style listening clips: mix of short lectures, announcements, a radio talk, a student talking about a problem. Each {"script": 100-160 words of natural single-speaker speech, "questions": [2 {"q": question, "options": [4 short options], "answer": 0-3}]}],
- "talk": {"title": title, "text": a 650-750 word academic talk on a STEP-like topic (science, health, history, education, environment, technology), upper-intermediate level, rich in academic vocabulary},
- "story": {"title": title, "text": a 380-450 word true-to-life story or biography told in the past tense, rich in narrative tenses and linking words}
+ "clips": [4 STEP-style listening clips: one short lecture, one announcement, one radio talk, one student talking about a problem. Each {"script": 100-140 words of natural single-speaker speech, "questions": [2 {"q": question, "options": [4 short options], "answer": 0-3}]}],
+ "talk": {"title": title, "text": a 380-450 word academic talk on a STEP-like topic (science, health, history, education, environment, technology), upper-intermediate level, rich in academic vocabulary}
 }
 Spread correct answers evenly across 0,1,2,3.`;
 }
 
-// النماذج الجديدة تفكّر قبل الرد، والتفكير ياكل من max_tokens.
-// النص هنا كتابة مباشرة، فنقلل التفكير ونرفع السقف.
+// القواعد والأسئلة على Sonnet (دقة الإجابات مهمة)، والاستماع على Haiku (أرخص بعشرين مرة وكافي لكتابة مقاطع)
+const modelFor = (env, which) => which === 'b'
+  ? (env.POD_LISTEN_MODEL || 'claude-haiku-5-5')
+  : (env.MODEL || 'claude-sonnet-5-5');
+
+// النص هنا كتابة مباشرة، فنقلل التفكير. والسقف يمنع أي طلب يصرف أكثر من اللازم.
 function body(model, prompt, lean) {
-  const b = { model, max_tokens: 32000, system: SYS, messages: [{ role: 'user', content: prompt }] };
+  const b = { model, max_tokens: 12000, system: SYS, messages: [{ role: 'user', content: prompt }] };
   if (lean) {
     if (/sonnet-5/.test(model)) b.thinking = { type: 'between_tools' };
-    b.output_config = { effort: 'medium' };
+    b.output_config = { effort: /haiku/.test(model) ? 'low' : 'medium' };
   }
   return b;
 }
 
-async function claude(env, prompt, lean = true) {
-  const model = env.MODEL || 'claude-sonnet-5-5';
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify(body(model, prompt, lean))
-  });
-  // لو النموذج ما يدعم هذي الإعدادات، نعيد بدونها
-  if (r.status === 400 && lean) { const t = await r.text(); if (/thinking|effort|output_config/i.test(t)) return claude(env, prompt, false); throw new Error('Claude API: ' + t.slice(0, 200)); }
-  const raw = await r.text();
-  let d; try { d = JSON.parse(raw); } catch (e) { throw new Error(`رد Claude انقطع (HTTP ${r.status})`); }
+async function claude(env, which, prompt, lean = true) {
+  const model = modelFor(env, which);
+  const { r, raw, d } = await anthropic(env, 'podcast-' + which, body(model, prompt, lean));
+  // لو النموذج ما يدعم هذي الإعدادات، نعيد بدونها (الرد المرفوض ما يكلّف شي)
+  if (r.status === 400 && lean) { if (/thinking|effort|output_config/i.test(raw)) return claude(env, which, prompt, false); throw new Error('Claude API: ' + raw.slice(0, 200)); }
+  if (!d) throw new Error(`رد Claude انقطع (HTTP ${r.status})`);
   if (!r.ok) throw new Error('Claude API: ' + ((d.error && d.error.message) || r.status));
-  if (d.stop_reason === 'max_tokens') throw new Error('نص الحلقة طلع أطول من الحد');
+  if (d.stop_reason === 'max_tokens') throw new Error('Claude API: نص الحلقة طلع أطول من الحد');
   const text = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
   try { return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)); }
   catch (e) { throw new Error('نص الحلقة طلع ناقص (JSON)'); }
 }
 
-async function part(env, prompt) {
-  try { return await claude(env, prompt); }
-  catch (e) { if (/^Claude API/.test(e.message) && !/overloaded|rate/i.test(e.message)) throw e; return await claude(env, prompt); }
+// إعادة واحدة فقط لو الرد طلع ناقص أو الخادم مزحوم
+async function part(env, which, prompt) {
+  try { return await claude(env, which, prompt); }
+  catch (e) { if (/^Claude API/.test(e.message) && !/overloaded|rate/i.test(e.message)) throw e; return await claude(env, which, prompt); }
 }
 
 const arr = x => Array.isArray(x) ? x : [];
@@ -284,7 +290,7 @@ export function buildPlan(s, review, day) {
     if (w.ex) { say(w.ex); shadow(w.ex); say(w.ex); gap(1.5); }
   });
   say('Quick check. I will say a meaning. You say the word.'); gap(1);
-  for (const w of s.words.slice().reverse().slice(0, 8)) { say(w.def); gap(4); say(`${w.w}.`); gap(1); }
+  for (const w of s.words.slice().reverse().slice(0, 6)) { say(w.def); gap(4); say(`${w.w}.`); gap(1); }
   gap(1.5);
 
   if (s.grammar.explain.length) {
@@ -316,21 +322,12 @@ export function buildPlan(s, review, day) {
   if (s.talk.text) {
     say(`Part five. A short talk: ${s.talk.title}. Listen for the main idea and for today's words.`); gap(1.5);
     say(s.talk.text, 1); gap(2);
-    say('One more time. This time, try to catch every detail.'); gap(1.5);
-    say(s.talk.text, 1); gap(2);
-    const sent = (s.talk.text.match(/[^.!?]+[.!?]+/g) || []).map(x => x.trim()).filter(x => wordsOf(x) >= 5 && wordsOf(x) <= 22).slice(0, 10);
+    const sent = (s.talk.text.match(/[^.!?]+[.!?]+/g) || []).map(x => x.trim()).filter(x => wordsOf(x) >= 5 && wordsOf(x) <= 22).slice(0, 6);
     if (sent.length) {
       say('Now shadowing. Repeat each sentence right after me, with the same rhythm.'); gap(1);
       for (const x of sent) { say(x, 1); shadow(x); }
       gap(1.5);
     }
-  }
-
-  if (s.story.text) {
-    say(`Part six. A story: ${s.story.title}. Just enjoy it and follow the events.`); gap(1.5);
-    say(s.story.text, 1); gap(2);
-    say('Listen once more.'); gap(1);
-    say(s.story.text, 1); gap(2);
   }
 
   say('Final review. Here are all of today\'s words one more time. Say the meaning before I do.'); gap(1);
@@ -346,7 +343,7 @@ export async function writeScript(env, date) {
   if (!(await takeLease(env, date, SCRIPT_LEASE))) return { busy: true };
   try {
     const inp = await scriptInputs(env, date);
-    const [a, b] = await Promise.all([part(env, promptA(inp)), part(env, promptB(inp))]);
+    const [a, b] = await Promise.all([part(env, 'a', promptA(inp)), part(env, 'b', promptB(inp))]);
     const s = cleanScript({ ...a, ...b });
     const done = await env.DB.prepare('SELECT MAX(day) d FROM days WHERE quiz_done=1').first();
     const plan = buildPlan(s, inp.review, (done && done.d) || 0);
@@ -358,8 +355,8 @@ export async function writeScript(env, date) {
     return { ok: true };
   } catch (e) {
     const msg = String((e && e.message) || e).slice(0, 300);
-    await env.DB.prepare("UPDATE episodes SET attempts=attempts+1, error=?, lease=?, status=CASE WHEN attempts+1>=3 THEN 'failed' ELSE 'script' END WHERE date=?")
-      .bind(msg, Date.now(), date).run();
+    await env.DB.prepare("UPDATE episodes SET error=?, lease=?, status=CASE WHEN attempts>=? THEN 'failed' ELSE 'script' END WHERE date=?")
+      .bind(msg, Date.now(), MAX_TRIES, date).run();
     throw e;
   }
 }
@@ -541,7 +538,7 @@ export async function ghApi(req, env, path) {
   if (path === 'job' && req.method === 'POST') {
     // نكتب نص اليوم لو ناقص، ونرجّع أحدث حلقة تنتظر صوت
     await tick(env);
-    const s = await env.DB.prepare("SELECT date FROM episodes WHERE status='script' AND attempts<3 ORDER BY date DESC LIMIT 1").first();
+    const s = await env.DB.prepare("SELECT date FROM episodes WHERE status='script' AND attempts<? ORDER BY date DESC LIMIT 1").bind(MAX_TRIES).first();
     if (s) { try { await writeScript(env, s.date); } catch (e) { return jres({ idle: true, error: String(e.message || e) }); } }
     const e = await env.DB.prepare("SELECT date,plan FROM episodes WHERE status='audio' AND tts_errors<3 ORDER BY date DESC LIMIT 1").first();
     if (!e) return jres({ idle: true });

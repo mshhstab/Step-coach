@@ -1,4 +1,5 @@
 import { CURRICULUM } from './curriculum.js';
+import { anthropic, usageReport } from './usage.js';
 import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle, podWork, ghApi } from './podcast.js';
 
 const TOTAL = CURRICULUM.length;
@@ -49,6 +50,7 @@ export default {
       const rm = p.match(/^\/api\/retry\/(\d+)$/);
       if (rm && m === 'POST') return await retry(env, +rm[1]);
       if (p === '/api/history' && m === 'GET') return json(await history(env));
+      if (p === '/api/usage' && m === 'GET') return json(await usageReport(env));
       if (p === '/api/review' && m === 'GET') return json(await reviewGet(env));
       if (p === '/api/review' && m === 'POST') return json(await reviewPost(env, await req.json()));
       if (p === '/api/podcast' && m === 'GET') return json(await podState(req, env));
@@ -165,7 +167,12 @@ async function getDay(env, n) {
   if (!row) {
     const pr = await progress(env);
     if (n !== pr.next || pr.locked || pr.pendingTomorrow) return json({ error: 'هذا اليوم ما انفتح لك بعد' }, 403);
-    await generate(env, n);
+    // لو الدرس يتجهّز الحين (تحديث الصفحة أو ضغطتين)، ما نطلبه من Claude مرة ثانية
+    const busy = await getMeta(env, 'gen_' + n, 0);
+    if (Date.now() - busy < 4 * 60e3) return json({ error: 'الدرس يتجهّز الحين. انتظر دقيقة وحاول مرة ثانية.' }, 409);
+    await setMeta(env, 'gen_' + n, Date.now());
+    try { await generate(env, n); }
+    finally { await setMeta(env, 'gen_' + n, 0); }
     row = await env.DB.prepare('SELECT * FROM days WHERE day=?').bind(n).first();
   }
   const tries = await getMeta(env, 'tries_' + n, 0);
@@ -248,16 +255,12 @@ Return JSON: {"title_ar": Arabic title, "intro_ar": one Arabic sentence with the
 ${QSPEC}`;
 }
 
-async function claude(env, prompt) {
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: env.MODEL || 'claude-sonnet-5-5', max_tokens: 14000, system: SYS,
-      messages: [{ role: 'user', content: prompt }]
-    })
+async function claude(env, prompt, kind = 'lesson') {
+  const { r, d } = await anthropic(env, kind, {
+    model: env.MODEL || 'claude-sonnet-5-5', max_tokens: 14000, system: SYS,
+    messages: [{ role: 'user', content: prompt }]
   });
-  const d = await r.json();
+  if (!d) throw new Error(`رد Claude انقطع (HTTP ${r.status})`);
   if (!r.ok) throw new Error('Claude API: ' + ((d.error && d.error.message) || r.status));
   const text = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
   return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
@@ -310,8 +313,8 @@ async function generate(env, n) {
   }
 
   let data;
-  try { data = clean(await claude(env, prompt), hasTom); }
-  catch (e) { if (e instanceof SyntaxError) data = clean(await claude(env, prompt), hasTom); else throw e; }
+  try { data = clean(await claude(env, prompt, item.kind), hasTom); }
+  catch (e) { if (e instanceof SyntaxError) data = clean(await claude(env, prompt, item.kind), hasTom); else throw e; }
 
   await env.DB.prepare('INSERT OR IGNORE INTO days(day,kind,sec,title,content,has_tomorrow,created_at) VALUES(?,?,?,?,?,?,?)')
     .bind(n, item.kind, item.sec, data.title_ar || item.title, JSON.stringify(data), hasTom && data.tomorrow.length ? 1 : 0, now()).run();
@@ -339,7 +342,7 @@ ${secRules(sec)}${sec === 'r' ? ` For this retake use two NEW passages with ids 
 Return JSON: {"passages": [PASSAGE] or [], "quiz": [12 QUESTION: 9 on today's topic at real STEP difficulty, with extra weight on the topics he got wrong, then 3 that interleave recently studied topics]}
 ${QSPEC}`;
     let d;
-    try { d = await claude(env, prompt); } catch (e) { if (e instanceof SyntaxError) d = await claude(env, prompt); else throw e; }
+    try { d = await claude(env, prompt, 'retry'); } catch (e) { if (e instanceof SyntaxError) d = await claude(env, prompt, 'retry'); else throw e; }
     const quiz = (Array.isArray(d.quiz) ? d.quiz : []).map(cq).filter(Boolean);
     if (quiz.length < 8) throw new Error('الأسئلة الجديدة طلعت ناقصة، جرّب مرة ثانية');
     const np = Array.isArray(d.passages) ? d.passages.filter(p => p && p.id && p.text).map(p => ({ id: String(p.id), text: String(p.text) })) : [];

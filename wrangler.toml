@@ -21,4 +21,6 @@ id = "3704b7f061c74583b511103b2df2deed"
 # ما نحتاج جدولة (Cron) في Cloudflare: الجدولة اليومية في GitHub Actions
 
 [vars]
-MODEL = "claude-sonnet-5-5"
+MODEL = "claude-sonnet-5-5"            # الدروس وقواعد الحلقة
+POD_LISTEN_MODEL = "claude-haiku-5-5"   # جزء الاستماع في الحلقة (أرخص بعشرين مرة)
+DAILY_CAP_USD = "1"                     # حد الصرف اليومي على Claude: لو وصله يوقف لين بكرة

@@ -32,3 +32,11 @@ CREATE TABLE IF NOT EXISTS episodes (
   error TEXT, created_at TEXT, done_at TEXT, parts TEXT
 );
 CREATE TABLE IF NOT EXISTS ep_pieces (date TEXT, idx INTEGER, bytes INTEGER, frames INTEGER, PRIMARY KEY(date, idx));
+
+-- تكلفة Claude: كل طلب بتوكناته وتكلفته
+CREATE TABLE IF NOT EXISTS api_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT, started INTEGER, kind TEXT, model TEXT, status TEXT,
+  input INTEGER, output INTEGER, cost REAL, ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_usage_date ON api_usage(date, kind);
