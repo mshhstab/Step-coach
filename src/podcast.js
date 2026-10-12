@@ -1,6 +1,6 @@
 // حلقة المشي اليومية: Claude يكتب النص من دروسك وغلطاتك، MeloTTS يحوّله صوت، ونقدّمه كبودكاست خاص
 import { CURRICULUM } from './curriculum.js';
-import { cleanMp3, silenceFrame } from './mp3.js';
+import { cleanMp3, silenceFrame, parseHeader } from './mp3.js';
 
 const TTS_MODEL = '@cf/myshell-ai/melotts';
 const START_HOUR = 3;          // تبدأ الحلقة تنبني من الساعة ٣ الفجر بتوقيت السعودية
@@ -516,6 +516,21 @@ export async function podWork(env) {
   await tick(env, { ms: 22000, max: 10 });
   const e = await env.DB.prepare('SELECT status,pieces_done,pieces_total,error FROM episodes WHERE date=?').bind(today()).first();
   return e || { status: null };
+}
+
+// فحص سريع لمخرجات تحويل النص إلى صوت (للتشخيص فقط)
+export async function ttsProbe(env, text) {
+  text = String(text || 'Hello. This is a short test of the walking lesson.').slice(0, MAX_PIECE);
+  const r = await env.AI.run(TTS_MODEL, { prompt: text, lang: 'en' });
+  const kind = r instanceof ReadableStream ? 'stream' : (r instanceof ArrayBuffer ? 'arraybuffer' : (ArrayBuffer.isView(r) ? 'view' : typeof r));
+  const keys = r && typeof r === 'object' && !(r instanceof ReadableStream) && !ArrayBuffer.isView(r) && !(r instanceof ArrayBuffer) ? Object.keys(r) : [];
+  let u = null; try { u = await tts(env, text); } catch (e) { return { kind, keys, error: String(e.message) }; }
+  const c = cleanMp3(u);
+  return { kind, keys, bytes: u.length, head: Array.from(u.subarray(0, 48)).map(x => x.toString(16).padStart(2, '0')).join(' '),
+    ascii: String.fromCharCode(...u.subarray(0, 16)).replace(/[^\x20-\x7e]/g, '.'), frames: c.frames, info: c.info, out: c.data.length,
+    walk: (() => { const o = []; let i = 0; if (u[0] === 0x49) i = 10 + (((u[6] & 127) << 21) | ((u[7] & 127) << 14) | ((u[8] & 127) << 7) | (u[9] & 127));
+      for (let k = 0; k < 6 && i < u.length; k++) { const h = parseHeader(u, i); o.push({ at: i, hdr: Array.from(u.subarray(i, i + 4)).map(x => x.toString(16)).join(''), len: h && h.len }); if (!h) break; i += h.len; } return o; })(),
+    tail: Array.from(u.subarray(Math.max(0, u.length - 16))).map(x => x.toString(16).padStart(2, '0')).join(' ') };
 }
 
 export async function podToggle(env, on) { await setMeta(env, 'pod_enabled', !!on); return { enabled: !!on }; }
