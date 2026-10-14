@@ -494,8 +494,33 @@ export async function podBuild(env) {
 // التطبيق وهو مفتوح يدفع الشغل بنفسه (احتياط لو الجدولة متأخرة)
 export async function podWork(env) {
   await tick(env, { ms: 22000, max: 10 });
+  await kickRecorder(env);
   const e = await env.DB.prepare('SELECT status,pieces_done,pieces_total,error FROM episodes WHERE date=?').bind(today()).first();
   return e || { status: null };
+}
+
+/* ---------- تشغيل التسجيل فوراً ----------
+   جدولة GitHub تتأخر أو تنتسى أحياناً، فالتطبيق نفسه يطلب من GitHub يبدأ التسجيل لما يكون النص جاهز.
+   يحتاج GH_TOKEN (Secret في Cloudflare): توكن محدود بصلاحية Actions على مستودع step-coach فقط.
+   ما فيه خطر تسجيلين: ملف العمل ينتظر أي تشغيل قبله، واللي يجي بعده يلقى الحلقة جاهزة فيطلع. */
+const GH_REPO = 'mshhstab/step-coach';
+const KICK_GAP = 30 * 60e3;   // ما نطلب تشغيل جديد إلا بعد ٣٠ دقيقة من آخر طلب
+export async function kickRecorder(env) {
+  const tok = String(env.GH_TOKEN || '').trim();
+  if (!tok) return { kicked: false, reason: 'no token' };
+  const e = await env.DB.prepare("SELECT date FROM episodes WHERE status='audio' AND tts_errors<3 ORDER BY date DESC LIMIT 1").first();
+  if (!e) return { kicked: false, reason: 'nothing to record' };
+  const last = await getMeta(env, 'pod_kick_at', 0);
+  if (Date.now() - last < KICK_GAP) return { kicked: false, reason: 'recently kicked' };
+  await setMeta(env, 'pod_kick_at', Date.now());
+  const r = await fetch(`https://api.github.com/repos/${GH_REPO}/actions/workflows/podcast.yml/dispatches`, {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + tok, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28',
+      'user-agent': 'step-coach', 'content-type': 'application/json' },
+    body: JSON.stringify({ ref: 'main' }),
+  });
+  if (r.status !== 204) { console.log('kick failed', r.status, (await r.text()).slice(0, 200)); return { kicked: false, status: r.status }; }
+  return { kicked: true };
 }
 
 export async function podToggle(env, on) { await setMeta(env, 'pod_enabled', !!on); return { enabled: !!on }; }

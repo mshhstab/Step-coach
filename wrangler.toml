@@ -18,7 +18,10 @@ database_id = "28cfa6e1-6c1a-43a2-ba27-b34e78002825"
 binding = "POD"
 id = "3704b7f061c74583b511103b2df2deed"
 
-# ما نحتاج جدولة (Cron) في Cloudflare: الجدولة اليومية في GitHub Actions
+# جدولة Cloudflare (مجانية): كل ساعة من 3:05 لين 8:05 الفجر بتوقيت السعودية
+# تكتب نص الحلقة وتطلب من GitHub يسجّلها فوراً. جدولة GitHub تبقى احتياط.
+[triggers]
+crons = ["5 0-5 * * *"]
 
 [vars]
 MODEL = "claude-sonnet-5-5"            # الدروس وقواعد الحلقة

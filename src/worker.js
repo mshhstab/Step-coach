@@ -1,6 +1,6 @@
 import { CURRICULUM } from './curriculum.js';
 import { anthropic, usageReport } from './usage.js';
-import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle, podWork, ghApi } from './podcast.js';
+import { tick, feedToken, feed, serveAudio, podState, podEpisode, podBuild, podToggle, podWork, ghApi, kickRecorder } from './podcast.js';
 
 const TOTAL = CURRICULUM.length;
 const INTERVALS = [1, 3, 7, 14, 30, 60];           // التكرار المتباعد بالأيام
@@ -23,7 +23,8 @@ const PASS = 0.8;                                                   // لازم 
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(tick(env));
+    // يكتب نص الحلقة (من ٣ الفجر) وبعدها يطلب من GitHub يسجّلها على طول
+    ctx.waitUntil((async () => { await tick(env); await kickRecorder(env); })());
   },
   async fetch(req, env) {
     const url = new URL(req.url);
