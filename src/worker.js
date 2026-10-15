@@ -403,8 +403,21 @@ async function attempt(env, b) {
 }
 
 async function reviewGet(env) {
-  const { results } = await env.DB.prepare('SELECT id,q FROM cards WHERE due<=? ORDER BY due, id LIMIT 20').bind(today()).all();
-  return { cards: results.map(r => ({ id: r.id, q: JSON.parse(r.q) })) };
+  const { results } = await env.DB.prepare('SELECT id,q FROM cards WHERE due<=? ORDER BY due, id LIMIT 80').bind(today()).all();
+  // أسئلة المقطع الواحد أو القطعة الواحدة تجي مجموعة متصلة، وحد الـ ٢٠ ما يقسم مجموعة
+  const groups = new Map();
+  for (const r of results) {
+    const q = JSON.parse(r.q);
+    const k = q.audio ? 'a:' + q.audio : q.passage_text ? 't:' + q.passage_text : 'i:' + r.id;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push({ id: r.id, q });
+  }
+  const cards = [];
+  for (const g of groups.values()) {
+    if (cards.length && cards.length + g.length > 20) break;
+    cards.push(...g);
+  }
+  return { cards };
 }
 
 async function reviewPost(env, b) {

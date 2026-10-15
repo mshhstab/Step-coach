@@ -554,6 +554,14 @@ async function pastDay(n){
 /* ---------------- Runner ---------------- */
 function run({title, seq, passages, instant, onDone}){
   const P = {}; (passages || []).forEach(p => P[p.id] = p.text);
+  // أسئلة المقطع الواحد (أو القطعة الواحدة) تجي ورا بعض بدون ما يدخل بينها شي، زي ستيب
+  const gk = it => it.type !== 'q' ? null : it.q.audio ? 'a:' + it.q.audio : it.q.passage_text ? 't:' + it.q.passage_text : it.q.passage ? 'p:' + it.q.passage : null;
+  if (seq.every(it => it.type === 'q')){
+    const groups = new Map(), out = [];
+    seq.forEach((it, i) => { const k = gk(it) || 'i:' + i; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); });
+    groups.forEach(g => out.push(...g));
+    seq = out;
+  }
   seq.forEach(it => { if (it.type === 'q') it.order = it.q.segs ? [0,1,2,3] : shuffle([0,1,2,3]); });
   const R = {i:0, sel:null, done:false, results:[], plays:{}};
   const total = seq.length;
@@ -572,7 +580,7 @@ function run({title, seq, passages, instant, onDone}){
   }
   function speak(text){
     if (!window.speechSynthesis) return;
-    const used = R.plays[text] || 0; if (used >= 2) return;
+    const used = R.plays[text] || 0; if (used >= 1) return;
     R.plays[text] = used + 1;
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text); u.lang = 'en-US'; u.rate = .92;
@@ -598,10 +606,12 @@ function run({title, seq, passages, instant, onDone}){
       const ptext = q.passage_text || (q.passage && P[q.passage]);
       if (ptext) media += `<div class="passage en" tabindex="0" aria-label="نص القراءة">${esc(ptext)}</div>`;
       if (q.audio){
-        const left = 2 - (R.plays[q.audio] || 0);
+        const left = 1 - (R.plays[q.audio] || 0);
+        const grp = seq.filter(x => x.type === 'q' && x.q.audio === q.audio), gi = grp.indexOf(it) + 1;
+        const cnt = grp.length > 1 ? ` · سؤال ${gi} من ${grp.length} على هذا المقطع` : '';
         media += window.speechSynthesis ? `<div class="audio"><button class="play" id="play" ${left <= 0 ? 'disabled' : ''} aria-label="تشغيل المقطع">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg></button>
-            <div><strong>استمع للمقطع</strong><br><span class="muted">${left > 0 ? `باقي لك ${left === 2 ? 'مرتين' : 'مرة وحدة'}` : 'انتهت مرات التشغيل'}</span></div></div>`
+            <div><strong>استمع للمقطع</strong><br><span class="muted">${left > 0 ? 'يشتغل مرة وحدة، اقرأ الخيارات قبل' : 'انتهى التشغيل'}${cnt}</span></div></div>`
           : `<div class="passage en">${esc(q.audio)}</div>`;
       }
       const stem = q.segs
