@@ -168,9 +168,10 @@ Return JSON:
  "words": [10 new academic words that often appear in STEP reading passages, each {"w": word, "ar": Arabic meaning (1-3 words), "def": simple English definition (max 14 words), "ex": natural example sentence (9-16 words)}],
  "grammar": {"topic": short name, "explain": [4 spoken paragraphs, 45-75 words each, teaching ${W ? "a recap of this week's lessons, one short paragraph per lesson, ending with the rule he still confuses most" : L ? 'the most recent lesson topic, then a quick refresher on his single weakest topic' : 'his single weakest topic'}], "examples": [6 model sentences for listen-and-repeat, 7-15 words each]},
  "drills": [12 STEP sentence-completion items. First, for each of his recent mistakes, write a NEW sentence that tests the same rule (never copy his old sentence). Fill the rest with his weak topics. Each {"q": sentence with ___ for the blank, "options": [4 short options], "answer": 0-3, "full": the complete correct sentence, "why": 1-2 spoken sentences explaining the rule and the trap}],
- "closing": 2-3 spoken sentences: quick recap and a nudge to open the app for "${inp.nextItem.title}"
+ "closing": 2-3 spoken sentences: quick recap and a nudge to open the app for the next lesson; describe that lesson in English words only (its title is Arabic, so never write it)
 }
-Spread correct answers evenly across 0,1,2,3.`;
+Spread correct answers evenly across 0,1,2,3.
+Everything spoken is read by an English-only voice: never put Arabic letters in any spoken field (only "summary_ar" and "ar" may be Arabic).`;
 }
 
 // الجزء الثاني: استماع + محاضرة قصيرة (الاستماع أقوى قسم عندك، فهو أقصر جزء)
@@ -244,7 +245,10 @@ export function cleanScript(d) {
 }
 
 /* ---------- من النص إلى خطة صوت: مقاطع + وقفات ---------- */
-const speakable = t => str(t).replace(/_{2,}/g, ' blank ').replace(/[*#`~<>[\]{}|]/g, ' ').replace(/\s+/g, ' ').trim();
+// الأصوات إنجليزية فقط: أي نص عربي يطلع كلام غير مفهوم، فنشيله قبل التسجيل
+const AR = /["“”'«(]?[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF][\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\s:،؛'"“”»()\-]*/g;
+export const noArabic = t => str(t).replace(AR, ' ').replace(/\b(called|named|titled)\s*(?=[.!?,]|$)/gi, '').replace(/\s+([.!?,])/g, '$1').replace(/([.!?,])\1+/g, '$1');
+const speakable = t => noArabic(t).replace(/_{2,}/g, ' blank ').replace(/[*#`~<>[\]{}|]/g, ' ').replace(/\s+/g, ' ').trim();
 const wordsOf = t => str(t).split(/\s+/).filter(Boolean).length;
 
 function splitText(t) {
