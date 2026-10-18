@@ -2,6 +2,7 @@
 import { CURRICULUM } from './curriculum.js';
 import { silenceFrame } from './mp3.js';
 import { anthropic } from './usage.js';
+import { todaysTopics } from './topics.js';
 
 const START_HOUR = 3;          // تبدأ الحلقة تنبني من الساعة ٣ الفجر بتوقيت السعودية
 const RUN_MS = 70000;          // أقصى وقت لكل تشغيل مجدول
@@ -137,7 +138,18 @@ async function scriptInputs(env, t) {
     const wkWords = eps.filter(e => e.date >= addDays(t, -7)).flatMap(e => JSON.parse(e.words || '[]'));
     if (wkWords.length) review.splice(0, review.length, ...wkWords.slice(0, 12));
   }
-  return { weak, lastLesson, nextItem, mistakes, used, review, week };
+  // ذاكرة الاستماع: مواضيع آخر ٣٠ حلقة، عشان ما تتكرر المقاطع والمحاضرات
+  const { results: past } = await env.DB.prepare(
+    'SELECT script FROM episodes WHERE script IS NOT NULL AND date<? ORDER BY date DESC LIMIT 30').bind(t).all();
+  const recent = [], seen = [];
+  for (const r of past) {
+    let x; try { x = JSON.parse(r.script); } catch (e) { continue; }
+    if (x.topics) recent.push(...x.topics.clips.map(c => c.topic), x.topics.talk);
+    if (x.talk && x.talk.title) seen.push(x.talk.title);
+    for (const c of arr(x.clips)) seen.push(c.topic || str(c.script).split(/\s+/).slice(0, 10).join(' '));
+  }
+  const topics = todaysTopics(t, recent);
+  return { weak, lastLesson, nextItem, mistakes, used, review, week, topics, seen: [...new Set(seen)].slice(0, 80) };
 }
 
 function context(inp) {
@@ -174,17 +186,36 @@ Spread correct answers evenly across 0,1,2,3.
 Everything spoken is read by an English-only voice: never put Arabic letters in any spoken field (only "summary_ar" and "ar" may be Arabic).`;
 }
 
-// الجزء الثاني: استماع + محاضرة قصيرة (الاستماع أقوى قسم عندك، فهو أقصر جزء)
+// الجزء الثاني: استماع + محاضرة قصيرة. المواضيع يختارها الكود بالتناوب (topics.js) عشان ما تتكرر
+const KIND = {
+  lecture: 'a short lecture by a professor (one speaker)',
+  announcement: 'an announcement (one speaker); make clear where it is heard and who is speaking',
+  radio: 'a radio talk or news report (one speaker)',
+  conversation: 'a conversation between a man (A) and a woman (B), 8-12 turns',
+};
 function promptB(inp) {
-  return `Build part B of today's walking episode: listening practice.
+  const T = inp.topics;
+  return `Build part B of today's walking episode: listening practice in the style of the STEP exam.
 ${context(inp)}
 ${inp.week ? "Weekly review: where natural, let the clips and the talk reuse grammar from this week's lessons." : ''}
 
+Today's topics are fixed. Write fresh, original content on exactly these topics, in this order:
+${T.clips.map((c, i) => `Clip ${i + 1}: ${KIND[c.kind]}. Topic: ${c.topic}.`).join('\n')}
+Talk: ${T.talk}.
+
+Earlier episodes already covered these. Do not reuse their ideas, names, numbers, places or story lines:
+${inp.seen.join('; ') || 'none'}.
+
 Return JSON:
 {
- "clips": [4 STEP-style listening clips: one short lecture, one announcement, one radio talk, one student talking about a problem. Each {"script": 100-140 words of natural single-speaker speech, "questions": [2 {"q": question, "options": [4 short options], "answer": 0-3}]}],
- "talk": {"title": title, "text": a 380-450 word academic talk on a STEP-like topic (science, health, history, education, environment, technology), upper-intermediate level, rich in academic vocabulary}
+ "clips": [4 clips in the order above. Each {"kind": "lecture" | "announcement" | "radio" | "conversation", "topic": 3-6 word English label of what this clip is about,
+   one-speaker clips: "script": 100-140 words of natural speech,
+   conversation clips: "lines": [{"who": "A" or "B", "text": one turn}], 110-150 words in total, natural everyday speech with specific details (days, times, prices, places),
+   "questions": [2 {"q": question, "options": [4 short options], "answer": 0-3}]}],
+ "talk": {"title": title, "text": a 380-450 word academic talk on the talk topic, upper-intermediate level, rich in academic vocabulary}
 }
+Question mix across all 8 clip questions, like the real exam: at least 2 about the main idea or the purpose, at least 3 about a specific detail (a number, day, time, price, place or year), 1 about the speaker's opinion or attitude ("How does the speaker feel about..."), 1 asking where the talk is most likely heard or who is speaking, and 1 inference. Wrong options must sound possible, and some should use words that are heard in the clip.
+Use different first names in every episode; never give the speakers in a conversation the same names as before.
 Spread correct answers evenly across 0,1,2,3.`;
 }
 
@@ -198,7 +229,7 @@ function body(model, prompt, lean) {
   const b = { model, max_tokens: 12000, system: SYS, messages: [{ role: 'user', content: prompt }] };
   if (lean) {
     if (/sonnet-5/.test(model)) b.thinking = { type: 'between_tools' };
-    b.output_config = { effort: /haiku/.test(model) ? 'low' : 'medium' };
+    b.output_config = { effort: 'medium' };   // Haiku كان low، رفعناه عشان المقاطع تتنوع وتكون أدق
   }
   return b;
 }
@@ -229,6 +260,16 @@ function mcq(q) {
   const a = Number(q.answer); if (!(a >= 0 && a <= 3)) return null;
   return { q: str(q.q), options: q.options.map(str), answer: a, full: str(q.full), why: str(q.why) };
 }
+// مقطع استماع: متحدث واحد (script) أو محادثة بين صوتين (lines). نحفظ نص المحادثة كمان في script عشان صفحة التطبيق تعرضه
+function clip(c) {
+  if (!c) return null;
+  const lines = arr(c.lines).filter(l => l && str(l.text)).map(l => ({ who: str(l.who).toUpperCase() === 'B' ? 'B' : 'A', text: str(l.text) }));
+  const script = lines.length ? lines.map(l => `${l.who}: ${l.text}`).join('\n') : str(c.script);
+  if (!script) return null;
+  const out = { kind: str(c.kind), topic: str(c.topic), script, questions: arr(c.questions).map(mcq).filter(Boolean) };
+  if (lines.length >= 2) out.lines = lines;
+  return out;
+}
 export function cleanScript(d) {
   const s = {
     title: str(d.title) || 'Daily walk', summary_ar: str(d.summary_ar), intro: str(d.intro), closing: str(d.closing),
@@ -236,7 +277,7 @@ export function cleanScript(d) {
     grammar: { topic: str(d.grammar && d.grammar.topic), explain: arr(d.grammar && d.grammar.explain).map(str).filter(Boolean),
       examples: arr(d.grammar && d.grammar.examples).map(str).filter(Boolean) },
     drills: arr(d.drills).map(mcq).filter(Boolean),
-    clips: arr(d.clips).filter(c => c && str(c.script)).map(c => ({ script: str(c.script), questions: arr(c.questions).map(mcq).filter(Boolean) })),
+    clips: arr(d.clips).map(clip).filter(Boolean),
     talk: { title: str(d.talk && d.talk.title), text: str(d.talk && d.talk.text) },
     story: { title: str(d.story && d.story.title), text: str(d.story && d.story.text) },
   };
@@ -266,7 +307,7 @@ function splitText(t) {
 export function buildPlan(s, review, day) {
   const pieces = [], index = new Map(), tl = [];
   const voices = [];
-  // v=0 صوت المدرّس، v=1 صوت ثاني لمقاطع الاستماع والمحاضرة والقصة
+  // v=0 صوت المدرّس، v=1 صوت ثاني لمقاطع الاستماع والمحاضرة والقصة، v=2 الصوت الثالث (الطرف B في المحادثات)
   const say = (text, v = 0) => {
     const t = speakable(text); if (!t) return;
     for (const c of splitText(t)) {
@@ -316,11 +357,16 @@ export function buildPlan(s, review, day) {
   gap(1.5);
 
   say('Part four. Listening practice. You will hear each clip, then two questions. After the answers, you will hear the clip again.'); gap(1.5);
+  const KIND_SAY = { lecture: 'A short lecture.', announcement: 'An announcement.', radio: 'A radio talk.', conversation: 'A conversation.' };
+  const play = c => {
+    if (c.lines) c.lines.forEach(l => { say(l.text, l.who === 'B' ? 2 : 1); gap(0.4); });
+    else say(c.script, 1);
+  };
   s.clips.forEach((c, i) => {
-    say(`Clip ${i + 1}.`); gap(1); say(c.script, 1); gap(1.5);
+    say(`Clip ${i + 1}. ${KIND_SAY[c.kind] || ''}`); gap(1); play(c); gap(1.5);
     c.questions.forEach((q, j) => { say(`Question ${j + 1}. ${q.q}`); gap(0.6); say(opts(q)); gap(6); });
     c.questions.forEach((q, j) => { say(`Question ${j + 1}: the answer is ${LET[q.answer]}, ${q.options[q.answer]}.`); gap(0.6); });
-    say('Listen again.'); gap(1); say(c.script, 1); gap(2);
+    say('Listen again.'); gap(1); play(c); gap(2);
   });
 
   if (s.talk.text) {
@@ -349,6 +395,7 @@ export async function writeScript(env, date) {
     const inp = await scriptInputs(env, date);
     const [a, b] = await Promise.all([part(env, 'a', promptA(inp)), part(env, 'b', promptB(inp))]);
     const s = cleanScript({ ...a, ...b });
+    s.topics = inp.topics;
     const done = await env.DB.prepare('SELECT MAX(day) d FROM days WHERE quiz_done=1').first();
     const plan = buildPlan(s, inp.review, (done && done.d) || 0);
     await env.DB.batch([

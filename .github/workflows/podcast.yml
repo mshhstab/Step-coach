@@ -38,7 +38,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.piper-voices
-          key: piper-voices-v1
+          key: piper-voices-v2
       - name: Install Piper and ffmpeg
         if: steps.job.outputs.work == 'yes'
         run: |

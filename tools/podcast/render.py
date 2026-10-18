@@ -6,7 +6,7 @@ import json, os, subprocess, sys, tempfile, time, urllib.error, urllib.request, 
 from pathlib import Path
 
 APP = os.environ.get("APP_URL", "https://step-coach.mshhstab.workers.dev").rstrip("/")
-VOICES = ["en_US-lessac-medium", "en_US-ryan-medium"]   # 0: المدرّس، 1: مقاطع الاستماع والمحاضرة والقصة
+VOICES = ["en_US-lessac-medium", "en_US-ryan-medium", "en_US-amy-medium"]   # 0: المدرّس، 1: مقاطع الاستماع والمحاضرة والقصة (والرجل في المحادثات)، 2: المرأة في المحادثات
 VOICE_DIR = Path.home() / ".piper-voices"
 JOB = Path(tempfile.gettempdir()) / "podcast-job.json"
 PART = 20 * 1024 * 1024

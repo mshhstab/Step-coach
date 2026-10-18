@@ -388,7 +388,7 @@ async function transcript(date){
       <div class="sheet en" style="font-size:16px">${c.grammar.explain.map(p => `<p>${esc(p)}</p>`).join('')}
       <ul>${(c.grammar.examples || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
     <details><summary>أسئلة القواعد (${(c.drills || []).length})</summary>${(c.drills || []).map((q, i) => `<div class="rev"><div class="en">${i + 1}. ${esc(q.q)}</div>${opt(q)}<div class="en muted" style="font-size:14px">${esc(q.why)}</div></div>`).join('')}</details>
-    <details><summary>مقاطع الاستماع (${(c.clips || []).length})</summary>${(c.clips || []).map((k, i) => `<div class="rev"><strong>مقطع ${i + 1}</strong><p class="en">${esc(k.script)}</p>
+    <details><summary>مقاطع الاستماع (${(c.clips || []).length})</summary>${(c.clips || []).map((k, i) => `<div class="rev"><strong>مقطع ${i + 1}</strong><p class="en" style="white-space:pre-line">${esc(k.script)}</p>
       ${k.questions.map(q => `<div class="en">${esc(q.q)}</div>${opt(q)}`).join('')}</div>`).join('')}</details>
     ${c.talk && c.talk.text ? `<details><summary>المحاضرة: <span class="en">${esc(c.talk.title)}</span></summary><div class="passage en" style="max-height:none">${esc(c.talk.text)}</div></details>` : ''}
     ${c.story && c.story.text ? `<details><summary>القصة: <span class="en">${esc(c.story.title)}</span></summary><div class="passage en" style="max-height:none">${esc(c.story.text)}</div></details>` : ''}
