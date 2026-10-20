@@ -258,7 +258,7 @@ ${QSPEC}`;
 
 async function claude(env, prompt, kind = 'lesson') {
   const { r, d } = await anthropic(env, kind, {
-    model: env.MODEL || 'claude-sonnet-5-5', max_tokens: 14000, system: SYS,
+    model: env.MODEL || 'claude-sonnet-5-5', max_tokens: 20000, system: SYS,
     messages: [{ role: 'user', content: prompt }]
   });
   if (!d) throw new Error(`رد Claude انقطع (HTTP ${r.status})`);
