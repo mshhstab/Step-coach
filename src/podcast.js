@@ -225,8 +225,10 @@ const modelFor = (env, which) => which === 'b'
   : (env.MODEL || 'claude-sonnet-5-5');
 
 // النص هنا كتابة مباشرة، فنقلل التفكير. والسقف يمنع أي طلب يصرف أكثر من اللازم.
-function body(model, prompt, lean) {
-  const b = { model, max_tokens: 12000, system: SYS, messages: [{ role: 'user', content: prompt }] };
+// جزء الاستماع (Haiku) يفكر أكثر قبل ما يكتب، فسقفه أعلى. على Haiku هذا يكلّف تقريباً سنت واحد زيادة
+const MAX_OUT = { a: 12000, b: 20000 };
+function body(model, prompt, lean, which) {
+  const b = { model, max_tokens: MAX_OUT[which] || 12000, system: SYS, messages: [{ role: 'user', content: prompt }] };
   if (lean) {
     if (/sonnet-5/.test(model)) b.thinking = { type: 'between_tools' };
     b.output_config = { effort: 'medium' };   // Haiku كان low، رفعناه عشان المقاطع تتنوع وتكون أدق
@@ -236,7 +238,7 @@ function body(model, prompt, lean) {
 
 async function claude(env, which, prompt, lean = true) {
   const model = modelFor(env, which);
-  const { r, raw, d } = await anthropic(env, 'podcast-' + which, body(model, prompt, lean));
+  const { r, raw, d } = await anthropic(env, 'podcast-' + which, body(model, prompt, lean, which));
   // لو النموذج ما يدعم هذي الإعدادات، نعيد بدونها (الرد المرفوض ما يكلّف شي)
   if (r.status === 400 && lean) { if (/thinking|effort|output_config/i.test(raw)) return claude(env, which, prompt, false); throw new Error('Claude API: ' + raw.slice(0, 200)); }
   if (!d) throw new Error(`رد Claude انقطع (HTTP ${r.status})`);
