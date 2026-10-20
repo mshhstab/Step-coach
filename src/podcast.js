@@ -149,7 +149,7 @@ async function scriptInputs(env, t) {
     for (const c of arr(x.clips)) seen.push(c.topic || str(c.script).split(/\s+/).slice(0, 10).join(' '));
   }
   const topics = todaysTopics(t, recent);
-  return { weak, lastLesson, nextItem, mistakes, used, review, week, topics, seen: [...new Set(seen)].slice(0, 80) };
+  return { weak, lastLesson, nextItem, mistakes, used, review, week, topics, seen: [...new Set(seen)].slice(0, 30) };
 }
 
 function context(inp) {
@@ -203,7 +203,7 @@ Today's topics are fixed. Write fresh, original content on exactly these topics,
 ${T.clips.map((c, i) => `Clip ${i + 1}: ${KIND[c.kind]}. Topic: ${c.topic}.`).join('\n')}
 Talk: ${T.talk}.
 
-Earlier episodes already covered these. Do not reuse their ideas, names, numbers, places or story lines:
+Earlier episodes already covered these topics. Pick a different angle or story line:
 ${inp.seen.join('; ') || 'none'}.
 
 Return JSON:
@@ -215,7 +215,7 @@ Return JSON:
  "talk": {"title": title, "text": a 380-450 word academic talk on the talk topic, upper-intermediate level, rich in academic vocabulary}
 }
 Question mix across all 8 clip questions, like the real exam: at least 2 about the main idea or the purpose, at least 3 about a specific detail (a number, day, time, price, place or year), 1 about the speaker's opinion or attitude ("How does the speaker feel about..."), 1 asking where the talk is most likely heard or who is speaking, and 1 inference. Wrong options must sound possible, and some should use words that are heard in the clip.
-Use different first names in every episode; never give the speakers in a conversation the same names as before.
+Use varied first names for the speakers.
 Spread correct answers evenly across 0,1,2,3.`;
 }
 
@@ -231,7 +231,8 @@ function body(model, prompt, lean, which) {
   const b = { model, max_tokens: MAX_OUT[which] || 12000, system: SYS, messages: [{ role: 'user', content: prompt }] };
   if (lean) {
     if (/sonnet-5/.test(model)) b.thinking = { type: 'between_tools' };
-    b.output_config = { effort: 'medium' };   // Haiku كان low، رفعناه عشان المقاطع تتنوع وتكون أدق
+    // الاستماع (Haiku) على low: كان medium وصار يفكر أكثر كل يوم حتى ينقطع النص. التنوع مضمون لأن الكود يختار المواضيع
+    b.output_config = { effort: which === 'b' ? 'low' : 'medium' };
   }
   return b;
 }
