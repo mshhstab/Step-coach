@@ -574,18 +574,40 @@ function run({title, seq, passages, instant, onDone}){
   }
   function next(){
     R.i++; R.sel = null; R.done = false;
+    if (playing){ playing.cut = true; playing = null; freeScreen(); }
     if (window.speechSynthesis) speechSynthesis.cancel();
     if (R.i >= total) return onDone(R.results);
     render(); toTop();
   }
+  // التشغيل ينحسب بس إذا خلص المقطع للآخر. لو قفلت الشاشة أو انقطع الصوت، يرجع لك حق التشغيل
+  let wake = null, playing = null;
+  const holdScreen = async () => { try { if ('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); } catch(e){} };
+  const freeScreen = () => { try { if (wake) wake.release(); } catch(e){} wake = null; };
+  function cutPlay(){
+    if (!playing) return;
+    const p = playing; playing = null; p.cut = true;
+    R.plays[p.text] = 0; R.cut = p.text;
+    speechSynthesis.cancel(); freeScreen(); render();
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cutPlay(); });
+  window.addEventListener('pagehide', cutPlay);
   function speak(text){
-    if (!window.speechSynthesis) return;
-    const used = R.plays[text] || 0; if (used >= 1) return;
-    R.plays[text] = used + 1;
+    if (!window.speechSynthesis || playing) return;
+    if ((R.plays[text] || 0) >= 1) return;
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text); u.lang = 'en-US'; u.rate = .92;
     const vs = speechSynthesis.getVoices(); const v = vs.find(v => /en[-_]US/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang));
     if (v) u.voice = v;
+    const p = {text, cut:false, reached:0, sawBoundary:false}; playing = p;
+    u.onboundary = e => { p.sawBoundary = true; p.reached = Math.max(p.reached, e.charIndex || 0); };
+    u.onend = () => {
+      if (p.cut || playing !== p) return;
+      // لو المتصفح يرسل مواقع الكلمات ووقف قبل 85% من النص، نعتبره انقطع
+      if (p.sawBoundary && p.reached < text.length * .85) return cutPlay();
+      playing = null; R.plays[text] = 1; if (R.cut === text) R.cut = null; freeScreen(); render();
+    };
+    u.onerror = e => { if (playing === p && e.error !== 'interrupted' && e.error !== 'canceled') cutPlay(); };
+    holdScreen();
     speechSynthesis.speak(u); render();
   }
 
@@ -609,9 +631,11 @@ function run({title, seq, passages, instant, onDone}){
         const left = 1 - (R.plays[q.audio] || 0);
         const grp = seq.filter(x => x.type === 'q' && x.q.audio === q.audio), gi = grp.indexOf(it) + 1;
         const cnt = grp.length > 1 ? ` · سؤال ${gi} من ${grp.length} على هذا المقطع` : '';
-        media += window.speechSynthesis ? `<div class="audio"><button class="play" id="play" ${left <= 0 ? 'disabled' : ''} aria-label="تشغيل المقطع">
+        const now = playing && playing.text === q.audio, wasCut = R.cut === q.audio && left > 0;
+        const note = now ? 'يشتغل الحين… خل الشاشة مفتوحة' : wasCut ? 'انقطع المقطع قبل ما يخلص، تقدر تعيده من البداية' : left > 0 ? 'يشتغل مرة وحدة، اقرأ الخيارات قبل' : 'انتهى التشغيل';
+        media += window.speechSynthesis ? `<div class="audio"><button class="play" id="play" ${left <= 0 || now ? 'disabled' : ''} aria-label="${wasCut ? 'إعادة تشغيل المقطع' : 'تشغيل المقطع'}">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg></button>
-            <div><strong>استمع للمقطع</strong><br><span class="muted">${left > 0 ? 'يشتغل مرة وحدة، اقرأ الخيارات قبل' : 'انتهى التشغيل'}${cnt}</span></div></div>`
+            <div><strong>${wasCut ? 'أعد المقطع' : 'استمع للمقطع'}</strong><br><span class="muted">${note}${cnt}</span></div></div>`
           : `<div class="passage en">${esc(q.audio)}</div>`;
       }
       const stem = q.segs
@@ -638,7 +662,7 @@ function run({title, seq, passages, instant, onDone}){
       const nx = document.getElementById('nx'); if (nx) nx.onclick = next;
       const pl = document.getElementById('play'); if (pl) pl.onclick = () => speak(q.audio);
     }
-    document.getElementById('quit').onclick = () => { if (confirm('تطلع؟ تقدمك في هذا الجزء بيضيع.')) { if (window.speechSynthesis) speechSynthesis.cancel(); home(); } };
+    document.getElementById('quit').onclick = () => { if (confirm('تطلع؟ تقدمك في هذا الجزء بيضيع.')) { if (playing){ playing.cut = true; playing = null; freeScreen(); } if (window.speechSynthesis) speechSynthesis.cancel(); home(); } };
   }
   render(); toTop();
 }
